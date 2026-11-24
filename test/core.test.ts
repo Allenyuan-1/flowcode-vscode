@@ -170,6 +170,37 @@ describe('layout and placement', () => {
     expect(d.position.x).toBeGreaterThan(b.position.x);
   });
 
+  it('does not put unrelated methods in the same column', () => {
+    const spec = (name: string): MethodSpec => ({
+      id: name,
+      name,
+      kind: 'function',
+      category: 'test',
+      signature: `${name}()`,
+      effect: name,
+      params: [],
+      returns: [{ name: 'result', type: 'number' }],
+      origin: 'user',
+    });
+    const a = createMethodNode(spec('a'), { x: 0, y: 0 }, 'a');
+    const b = createMethodNode(spec('b'), { x: 0, y: 0 }, 'b');
+    const graph: FlowGraph = {
+      version: 1,
+      id: 'unrelated',
+      name: 'main',
+      language: 'python',
+      entryKind: 'module',
+      params: [],
+      returns: [],
+      nodes: [a, b],
+      values: [],
+      edges: [],
+      warnings: [],
+    };
+    layoutGraph(graph, { orientation: 'horizontal', width: 1200, height: 800 });
+    expect(a.position.x).not.toBe(b.position.x);
+  });
+
   it('places a new block without overlapping existing blocks', () => {
     const graph = demoGraph();
     const candidate = { x: graph.nodes[0].position.x, y: graph.nodes[0].position.y };

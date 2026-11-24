@@ -48,115 +48,113 @@ function deps(graph: FlowGraph): Map<string, Set<string>> {
   return map;
 }
 
-function layerMap(graph: FlowGraph): Map<string, number> {
-  const map = deps(graph);
-  const layer = new Map<string, number>();
-  const visiting = new Set<string>();
-  const visit = (id: string): number => {
-    if (layer.has(id)) return layer.get(id)!;
-    if (visiting.has(id)) return 0;
-    visiting.add(id);
-    let value = 0;
-    for (const dep of map.get(id) ?? []) value = Math.max(value, visit(dep) + 1);
-    visiting.delete(id);
-    layer.set(id, value);
-    return value;
-  };
-  for (const n of graph.nodes) visit(n.id);
-  const initial = new Map(layer);
+function groupedLayers(graph: FlowGraph): MethodNode[][] {
+  if (!graph.nodes.length) return [];
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const depsMap = deps(graph);
+  const rank = (node: MethodNode) =>
+    node.order !== undefined ? node.order : 1_000_000 + node.position.y * 1000 + node.position.x;
 
-  // Parallel branches must share a column:
-  // - front parallel: one parent with several children -> left edges align;
-  // - end parallel: several parents with one child -> right edges align.
   const children = new Map<string, Set<string>>();
-  const groups: string[][] = [];
   for (const node of graph.nodes) children.set(node.id, new Set());
-  for (const [child, parents] of map) {
-    if (parents.size > 1) groups.push([...parents]);
+  const candidates: string[][] = [];
+  for (const [child, parents] of depsMap) {
+    if (parents.size > 1) candidates.push([...parents]);
     for (const parent of parents) children.get(parent)?.add(child);
   }
   for (const [, kids] of children) {
-    if (kids.size > 1) groups.push([...kids]);
+    if (kids.size > 1) candidates.push([...kids]);
   }
-  if (!groups.length) return layer;
 
   const parent = new Map<string, string>();
+  const members = new Map<string, Set<string>>();
+  for (const node of graph.nodes) {
+    parent.set(node.id, node.id);
+    members.set(node.id, new Set([node.id]));
+  }
   const find = (id: string): string => {
     let root = id;
     while (parent.get(root) && parent.get(root) !== root) root = parent.get(root)!;
     return root;
   };
-  const union = (a: string, b: string): void => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent.set(ra, rb);
-  };
-  for (const group of groups) {
-    for (let i = 1; i < group.length; i += 1) union(group[0], group[i]);
-  }
-
-  const components = new Map<string, string[]>();
-  for (const node of graph.nodes) {
-    const root = find(node.id);
-    if (!components.has(root)) components.set(root, []);
-    components.get(root)!.push(node.id);
-  }
-  const hasInternalDependency = (ids: string[]): boolean => {
-    const set = new Set(ids);
+  const containsDependency = (ids: Set<string>): boolean => {
     for (const id of ids) {
-      for (const dependency of map.get(id) ?? []) {
-        if (set.has(dependency)) return true;
+      const stack = [...(depsMap.get(id) ?? [])];
+      const seen = new Set<string>();
+      while (stack.length) {
+        const dependency = stack.pop()!;
+        if (ids.has(dependency)) return true;
+        if (seen.has(dependency)) continue;
+        seen.add(dependency);
+        stack.push(...(depsMap.get(dependency) ?? []));
       }
     }
     return false;
   };
-  // An equality constraint that contains an ancestor/descendant pair is
-  // contradictory; fall back to the plain dependency layering.
-  if ([...components.values()].some(hasInternalDependency)) return initial;
+  const unionGroup = (group: string[]): void => {
+    for (let i = 1; i < group.length; i += 1) {
+      const rootA = find(group[0]);
+      const rootB = find(group[i]);
+      if (rootA === rootB) continue;
+      const a = members.get(rootA)!;
+      const b = members.get(rootB)!;
+      const combined = new Set([...a, ...b]);
+      // A method cannot be in the same column as its ancestor/descendant.
+      if (containsDependency(combined)) continue;
+      parent.set(rootA, rootB);
+      members.set(rootB, combined);
+      members.delete(rootA);
+    }
+  };
+  for (const candidate of candidates) unionGroup(candidate);
 
-  const aligned = new Map(layer);
-  for (const ids of components.values()) {
-    const max = Math.max(...ids.map((id) => aligned.get(id) ?? 0));
-    for (const id of ids) aligned.set(id, max);
+  const roots: string[] = [...members.keys()];
+  const adj = new Map<string, Set<string>>();
+  const indegree = new Map<string, number>();
+  for (const root of roots) {
+    adj.set(root, new Set());
+    indegree.set(root, 0);
   }
-
-  const maxIterations = graph.nodes.length * 3 + 5;
-  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-    let changed = false;
-    for (const ids of components.values()) {
-      const max = Math.max(...ids.map((id) => aligned.get(id) ?? 0));
-      for (const id of ids) {
-        if ((aligned.get(id) ?? 0) !== max) {
-          aligned.set(id, max);
-          changed = true;
-        }
+  for (const [child, parents] of depsMap) {
+    const childRoot = find(child);
+    for (const dependency of parents) {
+      const parentRoot = find(dependency);
+      if (parentRoot === childRoot) continue;
+      if (!adj.get(parentRoot)!.has(childRoot)) {
+        adj.get(parentRoot)!.add(childRoot);
+        indegree.set(childRoot, (indegree.get(childRoot) ?? 0) + 1);
       }
     }
-    for (const node of graph.nodes) {
-      const current = aligned.get(node.id) ?? 0;
-      const required = Math.max(
-        current,
-        ...Array.from(map.get(node.id) ?? []).map((dependency) => (aligned.get(dependency) ?? 0) + 1),
-      );
-      if (required !== current) {
-        aligned.set(node.id, required);
-        changed = true;
+  }
+
+  const rootRank = (root: string): number => {
+    const nodes = [...(members.get(root) ?? [])].map((id) => byId.get(id)!).filter(Boolean);
+    return Math.min(...nodes.map(rank));
+  };
+  const ready = roots.filter((root) => (indegree.get(root) ?? 0) === 0);
+  ready.sort((a, b) => rootRank(a) - rootRank(b));
+  const ordered: string[] = [];
+  while (ready.length) {
+    const root = ready.shift()!;
+    ordered.push(root);
+    for (const next of adj.get(root) ?? []) {
+      indegree.set(next, (indegree.get(next) ?? 1) - 1);
+      if (indegree.get(next) === 0) {
+        ready.push(next);
+        ready.sort((a, b) => rootRank(a) - rootRank(b));
       }
     }
-    if (!changed) return aligned;
   }
-  return initial;
-}
+  if (ordered.length < roots.length) {
+    ordered.push(...roots.filter((root) => !ordered.includes(root)).sort((a, b) => rootRank(a) - rootRank(b)));
+  }
 
-function groupedLayers(graph: FlowGraph): MethodNode[][] {
-  const layer = layerMap(graph);
-  const max = Math.max(0, ...layer.values());
-  const groups: MethodNode[][] = Array.from({ length: max + 1 }, () => []);
-  for (const node of graph.nodes) groups[layer.get(node.id) ?? 0].push(node);
-  for (const group of groups) {
-    group.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key));
-  }
-  return groups;
+  return ordered.map((root) =>
+    [...(members.get(root) ?? [])]
+      .map((id) => byId.get(id)!)
+      .filter(Boolean)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)),
+  );
 }
 
 function clamp(value: number, min: number, max: number): number {
