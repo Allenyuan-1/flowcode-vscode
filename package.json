@@ -1,0 +1,123 @@
+{
+  "name": "flowcode-vscode",
+  "displayName": "FlowCode — 可视化程序逻辑",
+  "description": "用积木式流程图展示并编辑程序逻辑，支持 Python 代码与流程图双向转换。",
+  "version": "0.1.0",
+  "publisher": "flowcode",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "flowchart",
+    "visual programming",
+    "python",
+    "dataflow",
+    "diagram"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "media/icon.png",
+  "activationEvents": [
+    "onCommand:flowcode.open",
+    "onLanguage:python",
+    "onNotebook:jupyter-notebook",
+    "onStartupFinished",
+    "onUri"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "flowcode.open",
+        "title": "打开流程图",
+        "category": "FlowCode",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "flowcode.refresh",
+        "title": "从代码刷新流程图",
+        "category": "FlowCode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flowcode.setupAi",
+        "title": "FlowCode: Setup Studio API",
+        "category": "FlowCode"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "flowcode.open",
+          "when": "resourceLangId == python",
+          "group": "navigation"
+        }
+      ],
+      "notebook/toolbar": [
+        {
+          "command": "flowcode.open",
+          "when": "notebookType == 'jupyter-notebook'",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "flowcode.open",
+          "when": "editorLangId == python || notebookType == 'jupyter-notebook'"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "FlowCode",
+      "properties": {
+        "flowcode.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "用于解析 Python 的解释器路径；留空则自动检测 python / python3 / py。"
+        },
+        "flowcode.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "当前 Python 文档保存后，若流程图没有未应用的修改，则自动重新解析。"
+        },
+        "flowcode.aiBaseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "方法工作室的 OpenAI 兼容 API 地址；API Key 保存在 VS Code SecretStorage，不写入设置或流程图。"
+        },
+        "flowcode.aiModel": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "方法工作室使用的模型名。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "package": "node build.mjs && vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@esbuild/win32-x64": "0.24.2",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^4.1.1",
+    "esbuild": "^0.24.0",
+    "playwright-core": "1.49.1",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

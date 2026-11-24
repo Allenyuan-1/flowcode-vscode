@@ -1,0 +1,11 @@
+node_modules/
+dist/
+artifacts/
+.tmp*/
+*.vsix
+FlowCode-*.zip
+FlowCode-*.zip.sha256
+preview*.png
+HANDOFF.md
+.vscode/
+*.log
