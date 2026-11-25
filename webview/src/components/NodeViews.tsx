@@ -87,6 +87,8 @@ export function MethodNodeView({
     qualifiedName: node.qualifiedName,
   };
   const color = categoryColor(node.category);
+  // 合并视图的块节点用 segment: 前缀标记；老图/水合节点可能没有 methodId
+  const isBlock = typeof node.methodId === 'string' && node.methodId.startsWith('segment:');
 
   return (
     <div
@@ -102,13 +104,13 @@ export function MethodNodeView({
     >
       <div className="node-head">
         <span className="node-glyph" style={{ color }}>
-          {node.methodId.startsWith('segment:') ? '▦' : methodGlyph(methodLike)}
+          {isBlock ? '▦' : methodGlyph(methodLike)}
         </span>
         <div className="node-heading">
           <div className="node-title-row">
             <span className="node-name">{node.name}</span>
             <span className={`node-origin ${node.origin}`}>
-              {node.methodId.startsWith('segment:') ? node.category : kindLabel(methodLike)}
+              {isBlock ? node.category : kindLabel(methodLike)}
             </span>
             {graph.cells && graph.cellIndex === -1 && node.cellIndex !== undefined && node.cellIndex >= 0 && (
               <span className="node-cell">C{node.cellIndex + 1}</span>
