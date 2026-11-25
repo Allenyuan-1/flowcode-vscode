@@ -309,6 +309,34 @@ describe('layout and placement', () => {
     expect(sink.position.y).toBeGreaterThan(Math.max(...producers.map((node) => node.position.y)));
   });
 
+  it('keeps orphan values clear of nodes across vertical reflows', () => {
+    const join = createMethodNode({
+      id: 'join', name: 'join', kind: 'function', category: 'test',
+      signature: 'join(a, b)', effect: 'join', params: [{ name: 'a', type: 'number' }],
+      returns: [{ name: 'c', type: 'number' }], origin: 'user',
+    }, { x: 0, y: 0 }, 'join');
+    const lit = createValueNode({ kind: 'literal', name: "['time', 'price']", type: 'any', position: { x: 0, y: 0 } });
+    const comp = createValueNode({ kind: 'literal', name: '[f(t) for t in xs]', type: 'any', position: { x: 0, y: 0 } });
+    const graph: FlowGraph = {
+      version: 1, id: 'orphan-v', name: 'main', language: 'python',
+      entryKind: 'function', params: [], returns: [],
+      nodes: [join], values: [lit, comp], edges: [], warnings: [],
+    };
+    // reflow at two window sizes; orphans must never drift onto the node
+    for (const [width, height] of [[900, 1200], [620, 1100]] as const) {
+      layoutGraph(graph, { orientation: 'vertical', width, height });
+      for (const value of [lit, comp]) {
+        for (const node of graph.nodes) {
+          const overlapX = Math.min(value.position.x + 120, node.position.x + NODE_WIDTH) - Math.max(value.position.x, node.position.x);
+          const overlapY = Math.min(value.position.y + 46, node.position.y + nodeHeight(node)) - Math.max(value.position.y, node.position.y);
+          expect(overlapX <= 4 || overlapY <= 4).toBe(true);
+        }
+      }
+    }
+    // orphans get spread instead of stacking on one spot
+    expect(lit.position.x).not.toBe(comp.position.x);
+  });
+
   it('places a new block without overlapping existing blocks', () => {
     const graph = demoGraph();
     const candidate = { x: graph.nodes[0].position.x, y: graph.nodes[0].position.y };

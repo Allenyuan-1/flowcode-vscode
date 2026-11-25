@@ -14,7 +14,7 @@ export type FlowOrientation = 'horizontal' | 'vertical';
 
 const H_GAP_MIN = 365;
 const H_GAP_MAX = 680;
-const V_GAP_MIN = 70;
+const V_GAP_MIN = 92;
 const V_GAP_MAX = 440;
 const ROW_GAP = 44;
 const PILL_GAP = 50;
@@ -312,9 +312,21 @@ function placeVertical(graph: FlowGraph, groups: MethodNode[][], options: Layout
   });
 }
 
+/**
+ * Values with no method on either side (parser noise like unconnected list
+ * literals) still need a deterministic home. Without this they keep stale
+ * positions across reflows and drift onto nodes via centerIn.
+ */
+function placeOrphanValues(orphans: ValueNode[], y: number): void {
+  orphans.forEach((value, index) => {
+    value.position = { x: 60 + index * (VALUE_WIDTH + 18), y };
+  });
+}
+
 function placeValuesVertical(graph: FlowGraph): void {
   const methods = new Set(graph.nodes.map((node) => node.id));
   const outputs: ValueNode[] = [];
+  const orphans: ValueNode[] = [];
   for (const value of graph.values) {
     if (value.hidden) continue;
     const incomingMethods = graph.edges.filter(
@@ -354,7 +366,14 @@ function placeValuesVertical(graph: FlowGraph): void {
         x: port.x - VALUE_WIDTH / 2,
         y: first.node.position.y - VALUE_HEIGHT - VALUE_GAP,
       };
+    } else {
+      orphans.push(value);
     }
+  }
+
+  if (orphans.length) {
+    const top = graph.nodes.length ? Math.min(...graph.nodes.map((node) => node.position.y)) : 60;
+    placeOrphanValues(orphans, top - VALUE_HEIGHT - 10);
   }
 
   if (outputs.length) {
@@ -386,6 +405,7 @@ function placeValues(graph: FlowGraph, orientation: FlowOrientation): void {
   const methods = new Set(graph.nodes.map((node) => node.id));
   const groups = new Map<string, { value: ValueNode; portY: number }[]>();
   const outputValues: ValueNode[] = [];
+  const orphans: ValueNode[] = [];
 
   for (const value of graph.values) {
     if (value.hidden) continue;
@@ -429,7 +449,7 @@ function placeValues(graph: FlowGraph, orientation: FlowOrientation): void {
     targets.sort((a, b) => a.node.position.x - b.node.position.x || a.node.position.y - b.node.position.y);
     const first = targets[0];
     if (!first) {
-      value.position = { x: 60, y: 0 };
+      orphans.push(value);
       continue;
     }
     const index = first.node.inputs.findIndex((port) => port.id === first.port);
@@ -458,6 +478,8 @@ function placeValues(graph: FlowGraph, orientation: FlowOrientation): void {
       value.position.y = start + index * OUTPUT_GAP;
     });
   }
+
+  if (orphans.length) placeOrphanValues(orphans, 0);
 }
 
 function centerIn(graph: FlowGraph, options: LayoutOptions): void {
