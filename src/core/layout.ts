@@ -255,22 +255,30 @@ function flowOrder(graph: FlowGraph): MethodNode[] {
 }
 
 function placeVertical(graph: FlowGraph, groups: MethodNode[][], options: LayoutOptions): void {
-  void groups;
+  const rows = groups.filter((group) => group.length > 0);
   const targetW = options.width ?? 0;
   const targetH = options.height ?? 0;
-  const nodes = flowOrder(graph);
-  const sum = nodes.reduce((total, node) => total + nodeHeight(node), 0);
+  const rowHeights = rows.map((row) => Math.max(...row.map((node) => nodeHeight(node))));
+  const sum = rowHeights.reduce((total, height) => total + height, 0);
   let gap = options.layerGap ?? V_GAP_MIN;
-  if (!options.layerGap && targetH && nodes.length > 1) {
-    gap = clamp((targetH - 140 - sum) / (nodes.length - 1), V_GAP_MIN, V_GAP_MAX);
+  if (!options.layerGap && targetH && rows.length > 1) {
+    gap = clamp((targetH - 140 - sum) / (rows.length - 1), V_GAP_MIN, V_GAP_MAX);
   }
-  const total = sum + gap * Math.max(0, nodes.length - 1);
+  const total = sum + gap * Math.max(0, rows.length - 1);
   let y = targetH ? Math.max(40, (targetH - total) / 2) : 60;
-  const x = targetW ? Math.max(60, (targetW - NODE_WIDTH) / 2) : 60;
-  for (const node of nodes) {
-    node.position = { x, y };
-    y += nodeHeight(node) + gap;
-  }
+  rows.forEach((row, rowIndex) => {
+    const rowWidth = row.length * NODE_WIDTH + Math.max(0, row.length - 1) * ROW_GAP;
+    let x = targetW ? Math.max(36, (targetW - rowWidth) / 2) : 60;
+    const rowHeight = rowHeights[rowIndex];
+    for (const node of row) {
+      node.position = {
+        x,
+        y: y + (rowHeight - nodeHeight(node)) / 2,
+      };
+      x += NODE_WIDTH + ROW_GAP;
+    }
+    y += rowHeight + gap;
+  });
 }
 
 function placeValuesVertical(graph: FlowGraph): void {
@@ -326,10 +334,10 @@ function placeValuesVertical(graph: FlowGraph): void {
     });
     const startY = Math.max(...sourceYs) + VALUE_GAP + 10;
     outputs.sort((a, b) => a.name.localeCompare(b.name));
+    const minX = Math.min(...graph.nodes.map((node) => node.position.x));
+    const maxX = Math.max(...graph.nodes.map((node) => node.position.x + NODE_WIDTH));
+    const center = graph.nodes.length ? (minX + maxX) / 2 : 60;
     outputs.forEach((value, index) => {
-      const center = graph.nodes.length
-        ? graph.nodes[0].position.x + NODE_WIDTH / 2
-        : 60;
       value.position = {
         x: center - VALUE_WIDTH / 2 + (index - (outputs.length - 1) / 2) * (VALUE_WIDTH + 18),
         y: startY,

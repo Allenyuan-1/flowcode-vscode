@@ -7,5 +7,6 @@ FlowCode-*.zip
 FlowCode-*.zip.sha256
 preview*.png
 HANDOFF.md
+NEXT_CHAT.md
 .vscode/
 *.log

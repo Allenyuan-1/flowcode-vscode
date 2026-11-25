@@ -215,6 +215,48 @@ describe('layout and placement', () => {
     expect(input.x).toBeLessThan(add.position.x + NODE_WIDTH);
   });
 
+  it('keeps parallel methods on the same row in vertical mode', () => {
+    const spec = (name: string): MethodSpec => ({
+      id: name,
+      name,
+      kind: 'function',
+      category: 'test',
+      signature: `${name}(a, b)`,
+      effect: name,
+      params: [{ name: 'a', type: 'number' }, { name: 'b', type: 'number' }],
+      returns: [{ name: 'c', type: 'number' }],
+      origin: 'user',
+    });
+    const add = createMethodNode(spec('add'), { x: 0, y: 0 }, 'add');
+    const menos = createMethodNode(spec('menos'), { x: 0, y: 0 }, 'menos');
+    const xiangjia = createMethodNode(spec('xiangjia'), { x: 0, y: 0 }, 'xiangjia');
+    const edge = (id: string, from: typeof add, to: typeof add, toIndex: number) => ({
+      id,
+      from: { node: from.id, port: from.outputs[0].id },
+      to: { node: to.id, port: to.inputs[toIndex].id },
+    });
+    const graph: FlowGraph = {
+      version: 1,
+      id: 'vertical-parallel',
+      name: 'main',
+      language: 'python',
+      entryKind: 'module',
+      params: [],
+      returns: [],
+      nodes: [add, menos, xiangjia],
+      values: [],
+      edges: [
+        edge('e1', add, xiangjia, 0),
+        edge('e2', menos, xiangjia, 1),
+      ],
+      warnings: [],
+    };
+    layoutGraph(graph, { orientation: 'vertical', width: 1000, height: 1200 });
+    expect(add.position.y).toBe(menos.position.y);
+    expect(add.position.x).not.toBe(menos.position.x);
+    expect(xiangjia.position.y).toBeGreaterThan(add.position.y);
+  });
+
   it('places a new block without overlapping existing blocks', () => {
     const graph = demoGraph();
     const candidate = { x: graph.nodes[0].position.x, y: graph.nodes[0].position.y };
