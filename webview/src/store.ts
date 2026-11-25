@@ -61,6 +61,7 @@ export interface AppState {
   fitSignal: number;
   layoutSignal: number;
   orientation: FlowOrientation;
+  orientationMode: 'auto' | 'manual';
   demo: boolean;
   applyOpen: boolean;
   helpOpen: boolean;
@@ -101,6 +102,7 @@ export function initialState(): AppState {
     fitSignal: 0,
     layoutSignal: 0,
     orientation: 'horizontal',
+    orientationMode: 'auto',
     demo: false,
     applyOpen: false,
     helpOpen: false,
@@ -153,6 +155,7 @@ export type Action =
   | { type: 'dirty'; dirty: boolean }
   | { type: 'fit' }
   | { type: 'reflow'; width: number; height: number; orientation: FlowOrientation }
+  | { type: 'orientation'; orientation: FlowOrientation; mode: 'auto' | 'manual' }
   | { type: 'applyOpen'; open: boolean }
   | { type: 'helpOpen'; open: boolean }
   | { type: 'menuOpen'; open: boolean }
@@ -344,6 +347,8 @@ export function reducer(state: AppState, action: Action): AppState {
         fitSignal: state.fitSignal + 1,
       };
     }
+    case 'orientation':
+      return { ...state, orientation: action.orientation, orientationMode: action.mode };
     case 'applyOpen':
       return { ...state, applyOpen: action.open };
     case 'helpOpen':

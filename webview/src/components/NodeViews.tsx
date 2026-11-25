@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { FlowGraph, MethodNode, Port, ValueNode } from '../../../src/core/types';
 import { nodeHeight, NODE_ROW, NODE_WIDTH } from '../../../src/core/graph';
 import { typeLabel, portColor } from '../../../src/core/types';
@@ -13,6 +14,8 @@ function PortButton({
   nodeId,
   focused,
   targeted,
+  vertical,
+  left,
 }: {
   port: Port;
   side: 'in' | 'out';
@@ -21,10 +24,13 @@ function PortButton({
   focused?: boolean;
   /** Ports that a link/value drag is about to drop on. */
   targeted?: boolean;
+  vertical?: boolean;
+  left?: string;
 }) {
   return (
     <button
-      className={`port port-${side} ${connected ? 'is-connected' : 'is-open'} ${focused ? 'is-focus' : ''} ${targeted ? 'is-target' : ''}`}
+      className={`port port-${side} ${vertical ? 'port-vertical' : ''} ${connected ? 'is-connected' : 'is-open'} ${focused ? 'is-focus' : ''} ${targeted ? 'is-target' : ''}`}
+      style={vertical ? ({ ['--port-x' as string]: left ?? '50%' } as CSSProperties) : undefined}
       data-port-node={nodeId}
       data-port-id={port.id}
       data-port-kind={side}
@@ -48,6 +54,7 @@ export function MethodNodeView({
   onReveal,
   onDelete,
   onEditParam,
+  orientation = 'horizontal',
 }: {
   node: MethodNode;
   graph: FlowGraph;
@@ -59,7 +66,9 @@ export function MethodNodeView({
   onReveal: (line: number, character: number) => void;
   onDelete: () => void;
   onEditParam?: (nodeId: string, side: 'in' | 'out', index: number, anchor: { x: number; y: number }) => void;
+  orientation?: 'horizontal' | 'vertical';
 }) {
+  const vertical = orientation === 'vertical';
   const rows = Math.max(node.inputs.length, node.outputs.length, 1);
   const height = nodeHeight(node);
   const connectedIn = new Set(graph.edges.filter((e) => e.to.node === node.id).map((e) => e.to.port));
@@ -81,7 +90,7 @@ export function MethodNodeView({
 
   return (
     <div
-      className={`node ${selected ? 'is-selected' : ''} ${node.origin === 'user' ? 'is-user' : ''} ${dimmed ? 'is-dimmed' : ''} ${linkTarget?.node === node.id ? 'is-accept' : ''}`}
+      className={`node ${selected ? 'is-selected' : ''} ${node.origin === 'user' ? 'is-user' : ''} ${dimmed ? 'is-dimmed' : ''} ${vertical ? 'is-vertical' : ''} ${linkTarget?.node === node.id ? 'is-accept' : ''}`}
       data-node-id={node.id}
       data-node-kind="method"
       style={{ left: node.position.x, top: node.position.y, width: NODE_WIDTH, height, ['--node-color' as string]: color }}
@@ -135,6 +144,24 @@ export function MethodNodeView({
         </div>
       </div>
 
+      {vertical && (
+        <div className="vertical-ports vertical-ports-in">
+          {node.inputs.map((input, index) => (
+            <PortButton
+              key={input.id}
+              port={input}
+              side="in"
+              vertical
+              left={`${((index + 1) / (node.inputs.length + 1)) * 100}%`}
+              connected={connectedIn.has(input.id)}
+              nodeId={node.id}
+              focused={focusPort?.node === node.id && focusPort?.port === input.id}
+              targeted={linkTarget?.node === node.id && linkTarget?.port === input.id}
+            />
+          ))}
+        </div>
+      )}
+
       <div className="node-body">
         {Array.from({ length: rows }).map((_, index) => {
           const input = node.inputs[index];
@@ -187,7 +214,7 @@ export function MethodNodeView({
                   </>
                 )}
               </div>
-              {input && (
+              {!vertical && input && (
                 <PortButton
                   port={input}
                   side="in"
@@ -197,7 +224,7 @@ export function MethodNodeView({
                   targeted={linkTarget?.node === node.id && linkTarget?.port === input.id}
                 />
               )}
-              {output && (
+              {!vertical && output && (
                 <PortButton
                   port={output}
                   side="out"
@@ -211,6 +238,24 @@ export function MethodNodeView({
           );
         })}
       </div>
+
+      {vertical && (
+        <div className="vertical-ports vertical-ports-out">
+          {node.outputs.map((output, index) => (
+            <PortButton
+              key={output.id}
+              port={output}
+              side="out"
+              vertical
+              left={`${((index + 1) / (node.outputs.length + 1)) * 100}%`}
+              connected={connectedOut.has(output.id)}
+              nodeId={node.id}
+              focused={focusPort?.node === node.id && focusPort?.port === output.id}
+              targeted={linkTarget?.node === node.id && linkTarget?.port === output.id}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -224,6 +269,7 @@ export function ValueNodeView({
   linkTarget,
   onSelect,
   onDelete,
+  orientation = 'horizontal',
 }: {
   node: ValueNode;
   graph: FlowGraph;
@@ -233,7 +279,9 @@ export function ValueNodeView({
   linkTarget?: { node: string; port: string } | null;
   onSelect: () => void;
   onDelete: () => void;
+  orientation?: 'horizontal' | 'vertical';
 }) {
+  const vertical = orientation === 'vertical';
   const incoming = graph.edges.filter((e) => e.to.node === node.id);
   const outgoing = graph.edges.filter((e) => e.from.node === node.id);
   const connected = node.kind === 'output' ? incoming.length > 0 : outgoing.length > 0;
@@ -243,7 +291,7 @@ export function ValueNodeView({
       : node.name;
   return (
     <div
-      className={`value-node value-${node.kind} ${selected ? 'is-selected' : ''} ${dimmed ? 'is-dimmed' : ''} ${linkTarget?.node === node.id ? 'is-accept' : ''}`}
+      className={`value-node value-${node.kind} ${selected ? 'is-selected' : ''} ${dimmed ? 'is-dimmed' : ''} ${vertical ? 'is-vertical' : ''} ${linkTarget?.node === node.id ? 'is-accept' : ''}`}
       data-node-id={node.id}
       data-node-kind="value"
       style={{ left: node.position.x, top: node.position.y }}
@@ -276,7 +324,7 @@ export function ValueNodeView({
       </div>
       {node.kind !== 'output' && (
         <button
-          className={`port port-out ${connected ? 'is-connected' : 'is-open'} ${focusPort?.node === node.id && focusPort?.port === `${node.id}:out` ? 'is-focus' : ''} ${linkTarget?.node === node.id && linkTarget?.port === `${node.id}:out` ? 'is-target' : ''}`}
+          className={`port port-out ${vertical ? 'port-vertical' : ''} ${connected ? 'is-connected' : 'is-open'} ${focusPort?.node === node.id && focusPort?.port === `${node.id}:out` ? 'is-focus' : ''} ${linkTarget?.node === node.id && linkTarget?.port === `${node.id}:out` ? 'is-target' : ''}`}
           data-port-node={node.id}
           data-port-id={`${node.id}:out`}
           data-port-kind="out"
@@ -289,7 +337,7 @@ export function ValueNodeView({
       )}
       {node.kind === 'output' && (
         <button
-          className={`port port-in ${connected ? 'is-connected' : 'is-open'} ${focusPort?.node === node.id && focusPort?.port === `${node.id}:in` ? 'is-focus' : ''} ${linkTarget?.node === node.id && linkTarget?.port === `${node.id}:in` ? 'is-target' : ''}`}
+          className={`port port-in ${vertical ? 'port-vertical' : ''} ${connected ? 'is-connected' : 'is-open'} ${focusPort?.node === node.id && focusPort?.port === `${node.id}:in` ? 'is-focus' : ''} ${linkTarget?.node === node.id && linkTarget?.port === `${node.id}:in` ? 'is-target' : ''}`}
           data-port-node={node.id}
           data-port-id={`${node.id}:in`}
           data-port-kind="in"

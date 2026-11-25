@@ -5,7 +5,7 @@ import { demoGraph, demoMethods } from '../src/core/sample';
 import { generatePython } from '../src/core/generate';
 import { hydrateGraph } from '../src/core/enrich';
 import {
-  connect, connectionError, createMethodNode, createValueNode, findFreeSpot, graphBounds, nodeHeight, NODE_WIDTH,
+  connect, connectionError, createMethodNode, createValueNode, findFreeSpot, graphBounds, nodeHeight, NODE_WIDTH, portPosition,
 } from '../src/core/graph';
 import { layoutGraph } from '../src/core/layout';
 import type { FlowGraph, MethodSpec, ParseResult } from '../src/core/types';
@@ -199,6 +199,20 @@ describe('layout and placement', () => {
     };
     layoutGraph(graph, { orientation: 'horizontal', width: 1200, height: 800 });
     expect(a.position.x).not.toBe(b.position.x);
+  });
+
+  it('puts vertical inputs on top and outputs on bottom', () => {
+    const graph = demoGraph();
+    layoutGraph(graph, { orientation: 'vertical', width: 900, height: 1200 });
+    const add = graph.nodes.find((node) => node.name === 'add')!;
+    const normalize = graph.nodes.find((node) => node.name === 'normalize')!;
+    expect(add.position.y).toBeLessThan(normalize.position.y);
+    const input = portPosition(graph, { node: add.id, port: add.inputs[0].id }, 'vertical');
+    const output = portPosition(graph, { node: add.id, port: add.outputs[0].id }, 'vertical');
+    expect(input.y).toBeCloseTo(add.position.y);
+    expect(output.y).toBeCloseTo(add.position.y + nodeHeight(add));
+    expect(input.x).toBeGreaterThan(add.position.x);
+    expect(input.x).toBeLessThan(add.position.x + NODE_WIDTH);
   });
 
   it('places a new block without overlapping existing blocks', () => {

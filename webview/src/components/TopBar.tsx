@@ -1,4 +1,5 @@
 import type { MethodSpec } from '../../../src/core/types';
+import type { FlowOrientation } from '../../../src/core/layout';
 import type { NotebookInfo } from '../messages';
 import type { ViewMode } from '../store';
 import {
@@ -14,6 +15,8 @@ interface Props {
   methods: MethodSpec[];
   notebook?: NotebookInfo;
   viewMode: ViewMode;
+  orientation: FlowOrientation;
+  orientationMode: 'auto' | 'manual';
   dirty: boolean;
   syncing: boolean;
   demo: boolean;
@@ -24,6 +27,7 @@ interface Props {
   onEntry: (name: string) => void;
   onCell: (cell: number) => void;
   onViewMode: (mode: ViewMode) => void;
+  onOrientation: (mode: 'auto' | 'horizontal' | 'vertical') => void;
   onRefresh: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -105,6 +109,25 @@ export function TopBar(props: Props) {
           {filesMode ? <Code size={14} /> : <FileCode size={14} />}
           <span>{filesMode ? '流程图' : '文件关系'}</span>
         </button>
+        {!filesMode && (
+          <div className="orientation-toggle" role="group" aria-label="流程图方向">
+            <button
+              className={props.orientationMode === 'auto' ? 'is-active' : ''}
+              onClick={() => props.onOrientation('auto')}
+              title="根据窗口宽高自动选择"
+            >自动</button>
+            <button
+              className={props.orientationMode === 'manual' && props.orientation === 'horizontal' ? 'is-active' : ''}
+              onClick={() => props.onOrientation('horizontal')}
+              title="从左到右；输入在左，输出在右"
+            >横</button>
+            <button
+              className={props.orientationMode === 'manual' && props.orientation === 'vertical' ? 'is-active' : ''}
+              onClick={() => props.onOrientation('vertical')}
+              title="从上到下；输入在上，输出在下"
+            >竖</button>
+          </div>
+        )}
         <div className={`sync-pill ${props.dirty ? 'is-dirty' : 'is-clean'}`} title={props.dirty ? '流程图有未写回代码的修改' : '流程图与代码一致'}>
           <span className="sync-dot" />
           {props.dirty ? '未应用' : '已同步'}

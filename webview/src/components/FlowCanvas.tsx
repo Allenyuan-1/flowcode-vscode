@@ -15,7 +15,7 @@ import type { Selection, Viewport } from '../store';
 
 export interface CanvasApi {
   center: () => Point;
-  reflow: () => void;
+  reflow: (orientation?: FlowOrientation) => void;
 }
 
 function orientationFor(width: number, height: number): FlowOrientation {
@@ -67,6 +67,7 @@ interface Props {
   fitSignal: number;
   layoutSignal: number;
   orientation: FlowOrientation;
+  orientationMode: 'auto' | 'manual';
   syncing: boolean;
   apiRef: React.MutableRefObject<CanvasApi | null>;
   onViewport: (viewport: Viewport) => void;
@@ -162,7 +163,7 @@ export function FlowCanvas(props: Props) {
       const point = toGraph(clientX, clientY);
       const slack = DROP_SLACK_PX / Math.max(0.2, viewportRef.current.zoom);
       const distance = (nodeId: string, portId: string) => {
-        const pos = portPosition(graph, { node: nodeId, port: portId });
+        const pos = portPosition(graph, { node: nodeId, port: portId }, props.orientation);
         return Math.hypot(pos.x - point.x, pos.y - point.y);
       };
 
@@ -210,7 +211,7 @@ export function FlowCanvas(props: Props) {
       candidates.sort((a, b) => a.dist - b.dist);
       return { node: candidates[0].node, port: candidates[0].port };
     },
-    [toGraph],
+    [toGraph, props.orientation],
   );
 
   const fit = useCallback(() => {
@@ -250,10 +251,12 @@ export function FlowCanvas(props: Props) {
   }, [props.fitSignal, size.width, size.height]);
 
   const apiRef = props.apiRef;
-  const reflow = useCallback(() => {
+  const reflow = useCallback((forced?: FlowOrientation) => {
     if (!size.width || !size.height) return;
-    props.onReflow(size.width, size.height, orientationFor(size.width, size.height));
-  }, [size.width, size.height, props.onReflow]);
+    const orientation = forced
+      ?? (props.orientationMode === 'auto' ? orientationFor(size.width, size.height) : props.orientation);
+    props.onReflow(size.width, size.height, orientation);
+  }, [size.width, size.height, props.orientation, props.orientationMode, props.onReflow]);
 
   const lastLayoutSignal = useRef(-1);
   useEffect(() => {
@@ -273,7 +276,9 @@ export function FlowCanvas(props: Props) {
     const previous = reflowSize.current;
     const first = previous.width === 0;
     reflowSize.current = size;
-    const orientation = orientationFor(size.width, size.height);
+    const orientation = props.orientationMode === 'auto'
+      ? orientationFor(size.width, size.height)
+      : props.orientation;
     if (first) {
       reflowOrientation.current = orientation;
       return;
@@ -292,7 +297,7 @@ export function FlowCanvas(props: Props) {
       orientationChanged ? 0 : 140,
     );
     return () => window.clearTimeout(resizeTimer.current);
-  }, [size.width, size.height, reflow]);
+  }, [size.width, size.height, props.orientationMode, props.orientation, reflow]);
 
   useEffect(() => {
     apiRef.current = {
@@ -301,15 +306,17 @@ export function FlowCanvas(props: Props) {
         if (!rect) return { x: 0, y: 0 };
         return toGraph(rect.left + rect.width / 2, rect.top + rect.height / 2);
       },
-      reflow: () => {
+      reflow: (forced?: FlowOrientation) => {
         if (!size.width || !size.height) return;
-        props.onReflow(size.width, size.height, orientationFor(size.width, size.height));
+        const orientation = forced
+          ?? (props.orientationMode === 'auto' ? orientationFor(size.width, size.height) : props.orientation);
+        props.onReflow(size.width, size.height, orientation);
       },
     };
     return () => {
       apiRef.current = null;
     };
-  }, [apiRef, toGraph, size.width, size.height, props.onReflow]);
+  }, [apiRef, toGraph, size.width, size.height, props.orientation, props.orientationMode, props.onReflow]);
 
   const zoomAt = useCallback(
     (clientX: number, clientY: number, factor: number) => {
@@ -385,7 +392,7 @@ export function FlowCanvas(props: Props) {
     pendingRef.current = {
       anchor: start,
       anchorKind,
-      start: portPosition(graph, start),
+      start: portPosition(graph, start, props.orientation),
       type,
       client: { x: event.clientX, y: event.clientY },
       focusNode: nodeId,
@@ -719,6 +726,7 @@ export function FlowCanvas(props: Props) {
           focusEdges={focus.edges}
           followEdges={focus.follow}
           focusMode={focus.active}
+          orientation={props.orientation}
           onSelect={(id) => props.onSelect({ kind: 'edge', id })}
           onDelete={props.onDeleteEdge}
           onHover={setHoverEdge}
@@ -732,6 +740,7 @@ export function FlowCanvas(props: Props) {
             dimmed={focus.active && !focus.nodes.has(value.id)}
             focusPort={focusPort}
             linkTarget={linkTarget}
+            orientation={props.orientation}
             onSelect={() => props.onSelect({ kind: 'value', id: value.id })}
             onDelete={() => props.onDeleteValue(value.id)}
           />
@@ -745,6 +754,7 @@ export function FlowCanvas(props: Props) {
             dimmed={focus.active && !focus.nodes.has(node.id)}
             focusPort={focusPort}
             linkTarget={linkTarget}
+            orientation={props.orientation}
             onSelect={() => props.onSelect({ kind: 'node', id: node.id })}
             onReveal={(line, character) => props.onReveal(line, character)}
             onDelete={() => props.onDeleteNode(node.id)}
@@ -756,7 +766,7 @@ export function FlowCanvas(props: Props) {
           <svg className="edges edges-overlay" width="1" height="1" aria-hidden="true">
             <path
               className="edge-ghost"
-              d={edgeGeometry(link.start, linkTarget ? portPosition(props.graph, linkTarget) : link.current).d}
+              d={edgeGeometry(link.start, linkTarget ? portPosition(props.graph, linkTarget, props.orientation) : link.current, props.orientation).d}
               markerEnd="url(#fc-arrow-any)"
             />
           </svg>

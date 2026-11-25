@@ -440,6 +440,16 @@ export default function App() {
     canvasApi.current?.reflow();
   }, []);
 
+  const setOrientation = useCallback((mode: 'auto' | 'horizontal' | 'vertical') => {
+    if (mode === 'auto') {
+      dispatch({ type: 'orientation', orientation: stateRef.current.orientation, mode: 'auto' });
+      window.requestAnimationFrame(() => canvasApi.current?.reflow());
+      return;
+    }
+    dispatch({ type: 'orientation', orientation: mode, mode: 'manual' });
+    canvasApi.current?.reflow(mode);
+  }, []);
+
   const apply = useCallback(() => {
     const current = stateRef.current;
     if (!current.graph) return;
@@ -613,6 +623,8 @@ export default function App() {
         methods={state.userMethods}
         notebook={state.notebook}
         viewMode={state.viewMode}
+        orientation={state.orientation}
+        orientationMode={state.orientationMode}
         dirty={state.dirty}
         syncing={state.syncing}
         demo={state.demo}
@@ -623,6 +635,7 @@ export default function App() {
         onEntry={changeEntry}
         onCell={changeCell}
         onViewMode={changeViewMode}
+        onOrientation={setOrientation}
         onRefresh={refresh}
         onUndo={() => dispatch({ type: 'undo' })}
         onRedo={() => dispatch({ type: 'redo' })}
@@ -696,6 +709,7 @@ export default function App() {
                 fitSignal={state.fitSignal}
                 layoutSignal={state.layoutSignal}
                 orientation={state.orientation}
+                orientationMode={state.orientationMode}
                 syncing={state.syncing}
                 apiRef={canvasApi}
                 onViewport={(viewport) => dispatch({ type: 'viewport', viewport })}

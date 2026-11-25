@@ -273,7 +273,76 @@ function placeVertical(graph: FlowGraph, groups: MethodNode[][], options: Layout
   }
 }
 
-function placeValues(graph: FlowGraph): void {
+function placeValuesVertical(graph: FlowGraph): void {
+  const methods = new Set(graph.nodes.map((node) => node.id));
+  const outputs: ValueNode[] = [];
+  for (const value of graph.values) {
+    if (value.hidden) continue;
+    const incomingMethods = graph.edges.filter(
+      (edge) => edge.to.node === value.id && methods.has(edge.from.node),
+    );
+    const outgoingMethods = graph.edges.filter(
+      (edge) => edge.from.node === value.id && methods.has(edge.to.node),
+    );
+
+    if (incomingMethods.length && outgoingMethods.length === 0) {
+      outputs.push(value);
+      continue;
+    }
+    if (incomingMethods.length) {
+      const edge = incomingMethods[incomingMethods.length - 1];
+      const producer = graph.nodes.find((node) => node.id === edge.from.node);
+      if (producer) {
+        const port = portPosition(graph, edge.from, 'vertical');
+        value.position = {
+          x: port.x - VALUE_WIDTH / 2,
+          y: producer.position.y + nodeHeight(producer) + VALUE_GAP,
+        };
+        continue;
+      }
+    }
+    const targets = graph.edges
+      .filter((edge) => edge.from.node === value.id)
+      .map((edge) => ({
+        node: graph.nodes.find((node) => node.id === edge.to.node),
+        port: edge.to.port,
+      }))
+      .filter((target): target is { node: MethodNode; port: string } => Boolean(target.node));
+    const first = targets[0];
+    if (first) {
+      const port = portPosition(graph, { node: first.node.id, port: first.port }, 'vertical');
+      value.position = {
+        x: port.x - VALUE_WIDTH / 2,
+        y: first.node.position.y - VALUE_HEIGHT - VALUE_GAP,
+      };
+    }
+  }
+
+  if (outputs.length) {
+    const sourceYs = outputs.map((value) => {
+      const edge = graph.edges.find((item) => item.to.node === value.id && methods.has(item.from.node));
+      const source = edge ? graph.nodes.find((node) => node.id === edge.from.node) : undefined;
+      return source ? source.position.y + nodeHeight(source) : 0;
+    });
+    const startY = Math.max(...sourceYs) + VALUE_GAP + 10;
+    outputs.sort((a, b) => a.name.localeCompare(b.name));
+    outputs.forEach((value, index) => {
+      const center = graph.nodes.length
+        ? graph.nodes[0].position.x + NODE_WIDTH / 2
+        : 60;
+      value.position = {
+        x: center - VALUE_WIDTH / 2 + (index - (outputs.length - 1) / 2) * (VALUE_WIDTH + 18),
+        y: startY,
+      };
+    });
+  }
+}
+
+function placeValues(graph: FlowGraph, orientation: FlowOrientation): void {
+  if (orientation === 'vertical') {
+    placeValuesVertical(graph);
+    return;
+  }
   const maxRight = Math.max(0, ...graph.nodes.map((n) => n.position.x + NODE_WIDTH));
   const methods = new Set(graph.nodes.map((node) => node.id));
   const groups = new Map<string, { value: ValueNode; portY: number }[]>();
@@ -398,7 +467,7 @@ export function layoutGraph(graph: FlowGraph, options: LayoutOptions = {}): Flow
   const groups = groupedLayers(graph);
   if (orientation === 'vertical') placeVertical(graph, groups, options);
   else placeHorizontal(graph, groups, options);
-  placeValues(graph);
+  placeValues(graph, orientation);
   centerIn(graph, options);
   return graph;
 }

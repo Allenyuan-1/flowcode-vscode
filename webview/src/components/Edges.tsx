@@ -27,10 +27,11 @@ function edgeType(graph: FlowGraph, edge: FlowEdge): PortType {
   return source.outputs.find((p) => p.id === edge.from.port)?.type ?? 'any';
 }
 
-export function edgeGeometry(from: Point, to: Point): { d: string; mid: Point; c1: Point; c2: Point } {
+export function edgeGeometry(from: Point, to: Point, orientation: 'horizontal' | 'vertical' = 'horizontal'): { d: string; mid: Point; c1: Point; c2: Point } {
   const dx = Math.max(52, Math.abs(to.x - from.x) * 0.48);
-  const c1 = { x: from.x + dx, y: from.y };
-  const c2 = { x: to.x - dx, y: to.y };
+  const dy = Math.max(52, Math.abs(to.y - from.y) * 0.48);
+  const c1 = orientation === 'vertical' ? { x: from.x, y: from.y + dy } : { x: from.x + dx, y: from.y };
+  const c2 = orientation === 'vertical' ? { x: to.x, y: to.y - dy } : { x: to.x - dx, y: to.y };
   const d = `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`;
   const mid = {
     x: 0.125 * from.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * to.x,
@@ -48,6 +49,7 @@ export function Edges({
   focusEdges,
   followEdges,
   focusMode,
+  orientation = 'horizontal',
   onSelect,
   onDelete,
   onHover,
@@ -59,6 +61,7 @@ export function Edges({
   /** Highlighted only because they are downstream of the focused port. */
   followEdges?: Set<string>;
   focusMode?: boolean;
+  orientation?: 'horizontal' | 'vertical';
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onHover: (id: string | null) => void;
@@ -82,10 +85,10 @@ export function Edges({
         ))}
       </defs>
       {graph.edges.map((edge) => {
-        const from = portPosition(graph, edge.from);
-        const to = portPosition(graph, edge.to);
+        const from = portPosition(graph, edge.from, orientation);
+        const to = portPosition(graph, edge.to, orientation);
         const type = edgeType(graph, edge);
-        const { d, mid } = edgeGeometry(from, to);
+        const { d, mid } = edgeGeometry(from, to, orientation);
         const selected = edge.id === selectedEdge;
         const hovered = edge.id === hoveredEdge;
         const focused = focusMode && Boolean(focusEdges?.has(edge.id));

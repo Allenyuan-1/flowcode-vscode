@@ -131,13 +131,32 @@ export function isValueNode(node: MethodNode | ValueNode): node is ValueNode {
   return (node as ValueNode).kind === 'input' || (node as ValueNode).kind === 'literal' || (node as ValueNode).kind === 'global' || (node as ValueNode).kind === 'output';
 }
 
-export function portPosition(graph: FlowGraph, endpoint: Endpoint): Point {
+export function portPosition(
+  graph: FlowGraph,
+  endpoint: Endpoint,
+  orientation: 'horizontal' | 'vertical' = 'horizontal',
+): Point {
   const node = findNode(graph, endpoint.node);
   if (!node) return { x: 0, y: 0 };
   if (isValueNode(node)) {
+    if (orientation === 'vertical') {
+      return {
+        x: node.position.x + VALUE_WIDTH / 2,
+        y: endpoint.port.endsWith(':in') ? node.position.y : node.position.y + VALUE_HEIGHT,
+      };
+    }
     return {
       x: endpoint.port.endsWith(':in') ? node.position.x : node.position.x + VALUE_WIDTH,
       y: node.position.y + VALUE_HEIGHT / 2,
+    };
+  }
+  if (orientation === 'vertical') {
+    const isInput = endpoint.port.includes(':in:');
+    const ports = isInput ? node.inputs : node.outputs;
+    const index = Math.max(0, ports.findIndex((port) => port.id === endpoint.port));
+    return {
+      x: node.position.x + (NODE_WIDTH * (index + 1)) / (ports.length + 1),
+      y: isInput ? node.position.y : node.position.y + nodeHeight(node),
     };
   }
   if (endpoint.port.includes(':in:')) {

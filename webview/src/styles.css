@@ -3763,3 +3763,60 @@ body.vscode-light .error-banner.is-syntax {
 .studio-launch:hover { border-color: color-mix(in srgb, var(--fc-accent) 55%, transparent); background: color-mix(in srgb, var(--fc-accent) 14%, var(--fc-panel-2)); }
 .studio-launch span:nth-child(2) { flex: 1; }
 .studio-launch-sub { color: var(--fc-dim); font-family: var(--fc-mono); font-size: 7px; font-weight: 400; }
+
+/* ------------------------------------------------------- vertical ports */
+.vertical-ports {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.vertical-ports-in { top: 0; }
+.vertical-ports-out { bottom: 0; }
+.vertical-ports .port {
+  top: 0;
+  left: var(--port-x);
+  right: auto;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+.vertical-ports-out .port {
+  top: auto;
+  bottom: 0;
+  transform: translate(-50%, 50%);
+}
+.value-node.is-vertical .port-in {
+  top: 0;
+  left: 50%;
+  right: auto;
+  transform: translate(-50%, -50%);
+}
+.value-node.is-vertical .port-out {
+  top: 100%;
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.orientation-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--fc-border);
+  border-radius: 7px;
+  background: var(--fc-panel-2);
+}
+.orientation-toggle button {
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fc-dim);
+  font-size: 8.5px;
+  line-height: 1;
+}
+.orientation-toggle button:hover { color: var(--fc-text); }
+.orientation-toggle button.is-active { color: var(--fc-accent); background: color-mix(in srgb, var(--fc-accent) 13%, transparent); }
