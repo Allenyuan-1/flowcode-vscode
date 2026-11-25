@@ -257,6 +257,57 @@ describe('layout and placement', () => {
     expect(xiangjia.position.y).toBeGreaterThan(add.position.y);
   });
 
+  it('wraps a row that is wider than the window instead of pushing blocks off-screen', () => {
+    const spec = (name: string): MethodSpec => ({
+      id: name,
+      name,
+      kind: 'function',
+      category: 'test',
+      signature: `${name}(a, b)`,
+      effect: name,
+      params: [{ name: 'a', type: 'number' }, { name: 'b', type: 'number' }],
+      returns: [{ name: 'c', type: 'number' }],
+      origin: 'user',
+    });
+    // six parallel producers feed one consumer: one row would be ~1900px wide
+    const producers = Array.from({ length: 6 }, (_, i) =>
+      createMethodNode(spec(`p${i}`), { x: 0, y: 0 }, `p${i}`));
+    const sink = createMethodNode(
+      { ...spec('sink'), params: Array.from({ length: 6 }, (_, i) => ({ name: `a${i}`, type: 'number' })) },
+      { x: 0, y: 0 },
+      'sink',
+    );
+    const edges = producers.map((producer, i) => ({
+      id: `e${i}`,
+      from: { node: producer.id, port: producer.outputs[0].id },
+      to: { node: sink.id, port: sink.inputs[i].id },
+    }));
+    const graph: FlowGraph = {
+      version: 1,
+      id: 'vertical-wrap',
+      name: 'main',
+      language: 'python',
+      entryKind: 'module',
+      params: [],
+      returns: [],
+      nodes: [...producers, sink],
+      values: [],
+      edges,
+      warnings: [],
+    };
+    const width = 900;
+    layoutGraph(graph, { orientation: 'vertical', width, height: 1400 });
+    // nothing may stick out horizontally: every block stays inside the canvas
+    for (const node of graph.nodes) {
+      expect(node.position.x).toBeGreaterThanOrEqual(0);
+      expect(node.position.x + NODE_WIDTH).toBeLessThanOrEqual(width);
+    }
+    // the producers no longer share a single line
+    const rows = new Set(producers.map((node) => Math.round(node.position.y)));
+    expect(rows.size).toBeGreaterThan(1);
+    expect(sink.position.y).toBeGreaterThan(Math.max(...producers.map((node) => node.position.y)));
+  });
+
   it('places a new block without overlapping existing blocks', () => {
     const graph = demoGraph();
     const candidate = { x: graph.nodes[0].position.x, y: graph.nodes[0].position.y };

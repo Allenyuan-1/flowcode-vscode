@@ -224,7 +224,7 @@ export function FlowCanvas(props: Props) {
     const padding = 44;
     const zoom = clamp(
       Math.min((size.width - padding * 2) / bounds.width, (size.height - padding * 2) / bounds.height),
-      0.35,
+      0.15,
       1.2,
     );
     props.onViewport({
@@ -323,7 +323,7 @@ export function FlowCanvas(props: Props) {
       const rect = wrapRef.current?.getBoundingClientRect();
       if (!rect) return;
       const view = viewportRef.current;
-      const next = clamp(view.zoom * factor, 0.25, 2.5);
+      const next = clamp(view.zoom * factor, 0.15, 2.5);
       const gx = (clientX - rect.left - view.x) / view.zoom;
       const gy = (clientY - rect.top - view.y) / view.zoom;
       props.onViewport({
