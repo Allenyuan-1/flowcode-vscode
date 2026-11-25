@@ -3881,7 +3881,7 @@ body.vscode-light .error-banner.is-syntax {
   left: 0;
   top: 48px;
   bottom: 26px;
-  width: 620px;
+  width: min(620px, 100%);
   z-index: 41;
   display: flex;
   flex-direction: column;
@@ -3891,6 +3891,84 @@ body.vscode-light .error-banner.is-syntax {
   font-family: inherit;
   color: var(--fc-text);
 }
+
+/* 「按功能合并」块的成员下钻面板 */
+.merged-panel {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 360px;
+  max-height: 46%;
+  z-index: 42;
+  display: flex;
+  flex-direction: column;
+  background: var(--fc-panel);
+  border: 1px solid var(--fc-border-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  color: var(--fc-text);
+  overflow: hidden;
+}
+.merged-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--fc-border);
+}
+.merged-panel-head b { font-size: 12px; }
+.merged-panel-head span { font-size: 9px; color: var(--fc-dim); font-family: var(--fc-mono); }
+.merged-panel-list { overflow-y: auto; padding: 4px; }
+.merged-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fc-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.merged-panel-row:hover { background: var(--fc-panel-3); }
+.merged-panel-line { flex: none; width: 22px; font-size: 8.5px; color: var(--fc-dim); font-family: var(--fc-mono); }
+.merged-panel-name { flex: none; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
+.merged-panel-effect { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; color: var(--fc-dim); }
+.merged-panel-row svg { flex: none; color: var(--fc-dim); }
+.merged-panel-foot { padding: 6px 12px; border-top: 1px solid var(--fc-border); font-size: 8.5px; color: var(--fc-dim); }
+
+/* 结构视图缩放过小（节点不可读）时的建议条 */
+.canvas-suggest {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: var(--fc-panel);
+  border: 1px solid var(--fc-border-strong);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-size: 10px;
+  color: var(--fc-text);
+}
+.canvas-suggest button {
+  border: 1px solid var(--fc-accent);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--fc-accent);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.canvas-suggest button:hover { background: color-mix(in srgb, var(--fc-accent) 14%, transparent); }
 .blockview-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--fc-border); }
 .blockview-title { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
 .blockview-stat { font-size: 9.5px; color: var(--fc-dim); font-family: var(--fc-mono); }

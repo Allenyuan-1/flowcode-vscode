@@ -1356,7 +1356,7 @@ def _seg_label(nodes: list[dict], kind: str) -> str:
         prefix = max(set(modules), key=modules.count) if modules else ""
         return f"库引用：{prefix}" if prefix else "库引用"
     if kind == "write":
-        return "写出数据"
+        return "写出数据" if len(nodes) == 1 else f"写出数据（{len(nodes)} 次）"
     if kind == "morph":
         return _morph_label(nodes[0])
     if kind == "index":
@@ -1366,7 +1366,12 @@ def _seg_label(nodes: list[dict], kind: str) -> str:
     operators = all(n.get("kind") == "operator" for n in nodes)
     if operators and len(nodes) > 1:
         return "数值计算"
-    return "数据处理" if len(nodes) == 1 else f"数据处理（{len(nodes)} 步）"
+    # 块名用第一个「非运算符」节点的名字，比 tuple/neg 这类运算符名更有语义
+    named = [n for n in nodes if n.get("kind") != "operator"]
+    first = str((named[0] if named else nodes[0]).get("name") or "")
+    if len(nodes) == 1:
+        return f"数据处理：{first}" if first else "数据处理"
+    return f"数据处理：{first}…（{len(nodes)} 步）"
 
 
 _MORPH_TARGETS = {
@@ -1406,7 +1411,20 @@ def _segments_of(nodes: list[dict]) -> list[list[dict]]:
             blocks.append([node])
         else:
             blocks[-1].append(node)
-    return blocks
+    # 目标一致的「写出数据」块（print/savefig/to_csv…）全部收进一块——
+    # 模块级常见「计算 → 写出」循环，逐块列出会让合并图碎片化。
+    merged_write: list[dict] | None = None
+    out: list[list[dict]] = []
+    for block in blocks:
+        if _seg_kind(block[0]) == "write":
+            if merged_write is None:
+                merged_write = block
+                out.append(merged_write)
+            else:
+                merged_write.extend(block)
+        else:
+            out.append(block)
+    return out
 
 
 def build_segments(graph: dict) -> list[dict]:

@@ -24,6 +24,7 @@ import type { ParamEditTarget } from './components/ParamEditor';
 import { MethodStudio, studioMethodSpec } from './components/MethodStudio';
 import type { StudioDraft } from '../../src/core/studio';
 import { BlockView } from './BlockView';
+import { MergedBlockPanel } from './components/MergedBlockPanel';
 import { Logo } from './icons';
 import type { HostToWebview } from './messages';
 import { uniqueName } from './utils';
@@ -739,6 +740,36 @@ export default function App() {
                 onAddSample={addSample}
                 onRefresh={refresh}
               />
+              {!merged && state.viewport.zoom < 0.1 && graph && graph.nodes.length > 40 && canCollapse(graph) && (
+                <div className="canvas-suggest">
+                  <span>
+                    {graph.nodes.length} 个节点 · 缩放到 {Math.round(state.viewport.zoom * 100)}% 已看不清单个方法
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'merged', merged: true })}
+                    title="把目标一致的方法块按功能合并"
+                  >
+                    试试「按功能合并」
+                  </button>
+                </div>
+              )}
+              {merged && state.selected?.kind !== 'node' && (
+                <div className="canvas-suggest">
+                  <span>点一个块查看成员，点成员回到结构视图</span>
+                </div>
+              )}
+              {merged && state.selected?.kind === 'node' && graph && (
+                <MergedBlockPanel
+                  graph={graph}
+                  selectedId={state.selected.id}
+                  onLocate={(nodeId, line) => {
+                    dispatch({ type: 'merged', merged: false });
+                    dispatch({ type: 'select', selection: { kind: 'node', id: nodeId } });
+                    if (line !== undefined) reveal(line);
+                  }}
+                />
+              )}
             </div>
 
             <Inspector

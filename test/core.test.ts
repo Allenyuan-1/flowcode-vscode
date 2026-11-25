@@ -653,6 +653,26 @@ describe('merged blocks', () => {
     expect(morph.label).toBe('格式转换：df → float');
   });
 
+  it('merges all writes into one block and names calc blocks semantically', () => {
+    const source = [
+      'def report(df):',
+      '    a = df.sum()',
+      '    print(a)',
+      '    b = a / 2',
+      '    print(b)',
+      '    return b',
+    ].join('\n');
+    const parsed = parse(source, 'report');
+    expect(parsed.ok).toBe(true);
+    const segments = parsed.graph.segments ?? [];
+    const writes = segments.filter((segment) => segment.kind === 'write');
+    expect(writes).toHaveLength(1);
+    expect(writes[0].size).toBe(2);
+    expect(writes[0].label).toBe('写出数据（2 次）');
+    const calc = segments.find((segment) => segment.kind === 'calc')!;
+    expect(calc.label).toContain('数据处理：');
+  });
+
   it('collapses to one node per segment without touching the source graph', () => {
     const parsed = parse(source, 'load');
     const before = parsed.graph.nodes.length;
