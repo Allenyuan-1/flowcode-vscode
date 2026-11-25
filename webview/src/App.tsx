@@ -22,6 +22,7 @@ import { ParamEditor } from './components/ParamEditor';
 import type { ParamEditTarget } from './components/ParamEditor';
 import { MethodStudio, studioMethodSpec } from './components/MethodStudio';
 import type { StudioDraft } from '../../src/core/studio';
+import { BlockView } from './BlockView';
 import { Logo } from './icons';
 import type { HostToWebview } from './messages';
 import { uniqueName } from './utils';
@@ -800,6 +801,8 @@ export default function App() {
         />
       )}
       {state.helpOpen && <HelpDialog onClose={() => dispatch({ type: 'helpOpen', open: false })} />}
+
+      {state.viewMode === 'flow' && <BlockView graph={graph} onReveal={reveal} />}
 
       <input
         ref={fileInputRef}

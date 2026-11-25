@@ -401,6 +401,81 @@ describe('python bridge', () => {
   });
 });
 
+describe('block regions', () => {
+  const parse = (source: string, entry: string): ParseResult => {
+    const payload = JSON.stringify({ source, filename: 'blocks.py', entry });
+    const output = execFileSync('python', [path.join(root, 'python/parse_flow.py')], {
+      input: payload,
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    });
+    return JSON.parse(output) as ParseResult;
+  };
+
+  const dispatch = [
+    'def dispatch(expr):',
+    '    if expr is None:',
+    '        return []',
+    '    if isinstance(expr, int):',
+    '        out = str(expr)',
+    '    elif isinstance(expr, str):',
+    '        out = expr.strip()',
+    '    elif isinstance(expr, (list, tuple)):',
+    '        out = len(expr)',
+    '    else:',
+    '        out = repr(expr)',
+    '    return out',
+  ].join('\n');
+
+  it('partitions every node into exactly one block', () => {
+    const parsed = parse(dispatch, 'dispatch');
+    expect(parsed.ok).toBe(true);
+    const regions = parsed.graph.regions ?? [];
+    expect(regions.length).toBeGreaterThan(1);
+    const seen = new Set<string>();
+    for (const region of regions) {
+      for (const id of region.nodes) {
+        expect(seen.has(id)).toBe(false);
+        seen.add(id);
+      }
+    }
+    expect(seen.size).toBe(parsed.graph.nodes.length);
+  });
+
+  it('turns an if/elif chain into one named block per branch', () => {
+    const parsed = parse(dispatch, 'dispatch');
+    const labels = (parsed.graph.regions ?? []).map((region) => region.label);
+    // isinstance(...) guards collapse to "<subject> 是 <Type>"
+    expect(labels).toContain('expr 是 int');
+    expect(labels).toContain('expr 是 str');
+    expect(labels).toContain('expr 是 list/tuple');
+    expect(labels).toContain('否则');
+  });
+
+  it('keeps small functions intact instead of merging them into one lump', () => {
+    const source = [
+      'def small(a, b):',
+      '    if a > b:',
+      '        return a - b',
+      '    return a + b',
+    ].join('\n');
+    const parsed = parse(source, 'small');
+    const regions = parsed.graph.regions ?? [];
+    expect(regions).toHaveLength(2);
+    expect(regions[0].kind).toBe('case');
+    expect(regions[1].kind).toBe('linear');
+  });
+
+  it('survives hydrate and does not perturb code generation', () => {
+    const parsed = parse(dispatch, 'dispatch');
+    const before = generatePython(hydrateGraph(parsed.graph, parsed.methods));
+    const graph = hydrateGraph(parsed.graph, parsed.methods);
+    expect(graph.regions).toHaveLength(parsed.graph.regions!.length);
+    const after = generatePython(graph);
+    expect(after.code).toBe(before.code);
+  });
+});
+
 describe('workspace import scanner', () => {
   it('resolves local import and from-import edges', () => {
     const files = [

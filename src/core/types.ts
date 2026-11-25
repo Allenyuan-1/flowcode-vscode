@@ -136,6 +136,40 @@ export interface CellInfo {
   endLine: number;
 }
 
+/**
+ * A structural block of the entry function, produced by the Python bridge.
+ *
+ * Blocks are a *view* concept: they never take part in code generation.
+ * `parse_flow.py` derives them from the AST (one block per if/elif case,
+ * one per loop/try/with, and def-use clusters for linear runs), so they
+ * stay meaningful even though the data-flow graph itself is flat.
+ */
+export interface BlockRegion {
+  id: string;
+  /** 'case' | 'linear' | 'misc' | 'for' | 'while' | 'try' | 'with' | 'match' */
+  kind: string;
+  /** Rule-based name, e.g. "expr 是 BinOp" or "计算 gross、tax". */
+  label: string;
+  /** Human name from .flowcode/names.json when available (LLM-generated). */
+  name?: string;
+  /** Full source text of the guard, for 'case' blocks. */
+  condition?: string;
+  startLine: number;
+  endLine: number;
+  /** Number of data-flow nodes in this block. */
+  size: number;
+  /** Content fingerprint, used as the lookup key for cached names. */
+  hash?: string;
+  nodes: string[];
+  values: string[];
+  /** Variables flowing into this block from other blocks. */
+  inputs: string[];
+  /** Variables leaving this block. */
+  outputs: string[];
+  /** Ids of blocks this one feeds. */
+  edgesOut: string[];
+}
+
 export interface FlowGraph {
   version: 1;
   id: string;
@@ -156,6 +190,8 @@ export interface FlowGraph {
   cells?: CellInfo[];
   cellIndex?: number;
   sourceKind?: 'text' | 'notebook';
+  /** Structural blocks for the block view; absent when unavailable. */
+  regions?: BlockRegion[];
 }
 
 export interface FileNode {
