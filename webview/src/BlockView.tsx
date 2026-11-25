@@ -137,7 +137,12 @@ function layout(depths: Map<string, number>, regions: BlockRegion[]) {
 }
 
 export function BlockView({ graph, onReveal }: Props) {
-  const regions = useMemo(() => graph.regions ?? [], [graph.regions]);
+  // 空块（docstring / pass 之类，size === 0）没有可渲染内容，渲染前再兜一道，
+  // 防止旧版本解析器产出的缓存图把 "0 段" 带进界面
+  const regions = useMemo(
+    () => (graph.regions ?? []).filter((region) => region.size > 0),
+    [graph.regions],
+  );
   const [open, setOpen] = useState(false);
   const [sliceMode, setSliceMode] = useState(false);
   const [focus, setFocus] = useState<string | null>(null);

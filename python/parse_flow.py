@@ -114,6 +114,20 @@ def first_doc_line(node: ast.AST) -> str:
     return ""
 
 
+def code_body(node: ast.AST) -> list[ast.stmt]:
+    """函数体去掉首行 docstring。
+
+    数据流图与块视图必须用同一份 body：图会跳过 docstring，
+    块若不过滤就会得到一个没有任何节点的"0 段空块"。
+    """
+    body = list(getattr(node, "body", []) or [])
+    if (body and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
+        return body[1:]
+    return body
+
+
 class Source:
     __slots__ = ("node", "port", "name", "type", "annotation")
 
@@ -764,12 +778,9 @@ class Builder:
                     arg.arg, ann_type(annotation), annotation,
                     unparse(default) if default is not None else None, arg.lineno,
                 )
-            self.block(fn.body[1:] if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(fn.body[0].value, ast.Constant) and isinstance(fn.body[0].value.value, str) else fn.body)
+            self.block(code_body(fn))
         else:
-            module_body = module.body
-            if module_body and isinstance(module_body[0], ast.Expr) and isinstance(module_body[0].value, ast.Constant) and isinstance(module_body[0].value.value, str):
-                module_body = module_body[1:]
-            for stmt in module_body:
+            for stmt in code_body(module):
                 if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom)):
                     continue
                 self.stmt(stmt)
@@ -1208,6 +1219,10 @@ def build_regions(body: list[ast.stmt], graph: dict, lines: list[str]) -> list[d
     if len(raw) < 8:
         merged = list(raw)
 
+    # 丢掉不承载任何图元素的块：docstring、pass 这类语句不产出节点，
+    # 留着只会在块视图里显示成"0 段"的空壳
+    merged = [r for r in merged if r["nodes"] or r["values"]]
+
     # ---- 端口：跨块传递的变量
     out_name = {n["id"]: n["outputs"][0]["name"]
                 for n in graph["nodes"] if n.get("outputs")}
@@ -1301,13 +1316,13 @@ def analyze(payload: dict) -> dict:
         ret = unparse(fn.returns) if fn.returns else None
         b = Builder(filename, fn.name, "function", spec_map, doc, source_range(fn), ret)
         graph = b.build(fn, tree)
-        attach_regions(graph, fn.body, source, filename)
+        attach_regions(graph, code_body(fn), source, filename)
     else:
         stem = Path(filename).stem or "module"
         b = Builder(filename, stem, "module", spec_map, "", None, None)
         graph = b.build(None, tree)
         attach_regions(graph, [
-            s for s in tree.body
+            s for s in code_body(tree)
             if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
                                   ast.Import, ast.ImportFrom))
         ], source, filename)

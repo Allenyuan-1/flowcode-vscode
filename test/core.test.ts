@@ -466,6 +466,22 @@ describe('block regions', () => {
     expect(regions[1].kind).toBe('linear');
   });
 
+  it('never emits a zero-size block for a docstring', () => {
+    const source = [
+      'def load(path):',
+      '    """读表：附件1 代表日 电价/负载/光伏。"""',
+      '    df = read_excel(path)',
+      '    return df',
+    ].join('\n');
+    const parsed = parse(source, 'load');
+    expect(parsed.ok).toBe(true);
+    const regions = parsed.graph.regions ?? [];
+    expect(regions.length).toBeGreaterThan(0);
+    // docstring 不产出图节点，若块视图不对齐 body 就会留下 "0 段" 空块
+    expect(regions.filter((region) => region.size === 0)).toEqual([]);
+    expect(regions[0].startLine).toBeGreaterThan(1);
+  });
+
   it('survives hydrate and does not perturb code generation', () => {
     const parsed = parse(dispatch, 'dispatch');
     const before = generatePython(hydrateGraph(parsed.graph, parsed.methods));
