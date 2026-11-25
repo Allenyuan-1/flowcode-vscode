@@ -62,6 +62,8 @@ const DROP_SLACK_PX = 84;
 
 interface Props {
   graph: FlowGraph;
+  /** Merged (block) view: read-only, only pan / zoom / fit stay active. */
+  locked?: boolean;
   selected: Selection;
   viewport: Viewport;
   fitSignal: number;
@@ -484,6 +486,7 @@ export function FlowCanvas(props: Props) {
     const target = event.target as HTMLElement;
     const portElement = target.closest('[data-port-node]') as HTMLElement | null;
     if (portElement) {
+      if (props.locked) return;
       beginLink(portElement, event);
       return;
     }
@@ -494,6 +497,11 @@ export function FlowCanvas(props: Props) {
     if (nodeElement) {
       const id = nodeElement.dataset.nodeId!;
       const kind = nodeElement.dataset.nodeKind as 'method' | 'value';
+      if (props.locked) {
+        props.onSelect(kind === 'method' ? { kind: 'node', id } : { kind: 'value', id });
+        event.preventDefault();
+        return;
+      }
       const graph = graphRef.current;
       const node = kind === 'method' ? graph.nodes.find((n) => n.id === id) : graph.values.find((n) => n.id === id);
       if (!node) return;
@@ -709,6 +717,7 @@ export function FlowCanvas(props: Props) {
       onDrop={(event) => {
         event.preventDefault();
         setDropActive(false);
+        if (props.locked) return;
         const methodId =
           event.dataTransfer.getData('application/x-flowcode-method') || event.dataTransfer.getData('text/plain');
         if (!methodId) return;

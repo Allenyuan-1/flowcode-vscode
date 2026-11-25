@@ -3821,6 +3821,26 @@ body.vscode-light .error-banner.is-syntax {
 .orientation-toggle button:hover { color: var(--fc-text); }
 .orientation-toggle button.is-active { color: var(--fc-accent); background: color-mix(in srgb, var(--fc-accent) 13%, transparent); }
 
+/* merged view toggle */
+.merge-toggle {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: 7px;
+  background: var(--fc-panel-2);
+  color: var(--fc-dim);
+  font-family: inherit;
+  font-size: 9.5px;
+  line-height: 1;
+}
+.merge-toggle:hover:not(:disabled) { color: var(--fc-text); }
+.merge-toggle.is-active {
+  color: var(--fc-accent);
+  border-color: color-mix(in srgb, var(--fc-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--fc-accent) 13%, transparent);
+}
+.merge-toggle:disabled { opacity: 0.4; cursor: default; }
+
 /* ---------------------------------------------------------------- block view */
 .blockview-launch {
   position: fixed;

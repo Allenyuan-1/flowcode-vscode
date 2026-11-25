@@ -102,12 +102,14 @@ export function MethodNodeView({
     >
       <div className="node-head">
         <span className="node-glyph" style={{ color }}>
-          {methodGlyph(methodLike)}
+          {node.methodId.startsWith('segment:') ? '▦' : methodGlyph(methodLike)}
         </span>
         <div className="node-heading">
           <div className="node-title-row">
             <span className="node-name">{node.name}</span>
-            <span className={`node-origin ${node.origin}`}>{kindLabel(methodLike)}</span>
+            <span className={`node-origin ${node.origin}`}>
+              {node.methodId.startsWith('segment:') ? node.category : kindLabel(methodLike)}
+            </span>
             {graph.cells && graph.cellIndex === -1 && node.cellIndex !== undefined && node.cellIndex >= 0 && (
               <span className="node-cell">C{node.cellIndex + 1}</span>
             )}

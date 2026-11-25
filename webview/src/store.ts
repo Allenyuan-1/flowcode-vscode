@@ -62,6 +62,8 @@ export interface AppState {
   layoutSignal: number;
   orientation: FlowOrientation;
   orientationMode: 'auto' | 'manual';
+  /** Show the graph folded into semantic merge blocks (view only). */
+  merged: boolean;
   demo: boolean;
   applyOpen: boolean;
   helpOpen: boolean;
@@ -103,6 +105,7 @@ export function initialState(): AppState {
     layoutSignal: 0,
     orientation: 'horizontal',
     orientationMode: 'auto',
+    merged: false,
     demo: false,
     applyOpen: false,
     helpOpen: false,
@@ -156,6 +159,7 @@ export type Action =
   | { type: 'fit' }
   | { type: 'reflow'; width: number; height: number; orientation: FlowOrientation }
   | { type: 'orientation'; orientation: FlowOrientation; mode: 'auto' | 'manual' }
+  | { type: 'merged'; merged: boolean }
   | { type: 'applyOpen'; open: boolean }
   | { type: 'helpOpen'; open: boolean }
   | { type: 'menuOpen'; open: boolean }
@@ -349,6 +353,8 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case 'orientation':
       return { ...state, orientation: action.orientation, orientationMode: action.mode };
+    case 'merged':
+      return { ...state, merged: action.merged, fitSignal: state.fitSignal + 1 };
     case 'applyOpen':
       return { ...state, applyOpen: action.open };
     case 'helpOpen':

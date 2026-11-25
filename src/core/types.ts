@@ -170,6 +170,27 @@ export interface BlockRegion {
   edgesOut: string[];
 }
 
+export interface PortSpec {
+  name: string;
+  type: string;
+}
+
+/** A semantic merge block: one or more method nodes folded into a single card. */
+export interface Segment {
+  id: string;
+  /** 'init' | 'io' | 'morph' | 'index' | 'shape' | 'calc' */
+  kind: string;
+  label: string;
+  /** Ids of the method nodes folded into this block. */
+  members: string[];
+  names: string[];
+  startLine: number;
+  endLine: number;
+  size: number;
+  inputs: PortSpec[];
+  outputs: PortSpec[];
+}
+
 export interface FlowGraph {
   version: 1;
   id: string;
@@ -192,6 +213,8 @@ export interface FlowGraph {
   sourceKind?: 'text' | 'notebook';
   /** Structural blocks for the block view; absent when unavailable. */
   regions?: BlockRegion[];
+  /** Semantic merge blocks (B tier); absent when unavailable. */
+  segments?: Segment[];
 }
 
 export interface FileNode {

@@ -17,6 +17,8 @@ interface Props {
   viewMode: ViewMode;
   orientation: FlowOrientation;
   orientationMode: 'auto' | 'manual';
+  merged: boolean;
+  canMerge: boolean;
   dirty: boolean;
   syncing: boolean;
   demo: boolean;
@@ -28,6 +30,7 @@ interface Props {
   onCell: (cell: number) => void;
   onViewMode: (mode: ViewMode) => void;
   onOrientation: (mode: 'auto' | 'horizontal' | 'vertical') => void;
+  onMerged: (merged: boolean) => void;
   onRefresh: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -127,6 +130,19 @@ export function TopBar(props: Props) {
               title="从上到下；输入在上，输出在下"
             >竖</button>
           </div>
+        )}
+        {!filesMode && (
+          <button
+            type="button"
+            className={`merge-toggle ${props.merged ? 'is-active' : ''}`}
+            disabled={!props.canMerge}
+            onClick={() => props.onMerged(!props.merged)}
+            title={props.canMerge
+              ? '把相邻的计算/整理合并成块，看清数据流阶段'
+              : '当前函数没有可合并的分块信息'}
+          >
+            {props.merged ? '合并' : '结构'}
+          </button>
         )}
         <div className={`sync-pill ${props.dirty ? 'is-dirty' : 'is-clean'}`} title={props.dirty ? '流程图有未写回代码的修改' : '流程图与代码一致'}>
           <span className="sync-dot" />

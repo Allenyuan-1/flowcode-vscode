@@ -8,6 +8,7 @@ import {
   connect, connectionError, createMethodNode, createValueNode, findFreeSpot, graphBounds, nodeHeight, NODE_WIDTH, portPosition,
 } from '../src/core/graph';
 import { layoutGraph } from '../src/core/layout';
+import { collapseGraph } from '../src/core/merge';
 import type { FlowGraph, MethodSpec, ParseResult } from '../src/core/types';
 
 const root = process.cwd();
@@ -540,6 +541,66 @@ describe('block regions', () => {
     expect(graph.regions).toHaveLength(parsed.graph.regions!.length);
     const after = generatePython(graph);
     expect(after.code).toBe(before.code);
+  });
+});
+
+describe('merged blocks', () => {
+  const parse = (source: string, entry: string): ParseResult => {
+    const payload = JSON.stringify({ source, filename: 'merge.py', entry });
+    const output = execFileSync('python', [path.join(root, 'python/parse_flow.py')], {
+      input: payload,
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    });
+    return JSON.parse(output) as ParseResult;
+  };
+
+  const source = [
+    'def load(path):',
+    '    df = pd.read_excel(path)',
+    '    df = df.set_index("t").reindex(TIME_LABELS)',
+    '    return df.astype(float)',
+  ].join('\n');
+
+  it('folds the chain into semantic segments', () => {
+    const parsed = parse(source, 'load');
+    expect(parsed.ok).toBe(true);
+    const segments = parsed.graph.segments ?? [];
+    expect(segments.length).toBeGreaterThanOrEqual(3);
+    const kinds = segments.map((segment) => segment.kind);
+    expect(kinds).toContain('io');
+    expect(kinds).toContain('index');
+    expect(kinds).toContain('morph');
+    // 索引整理合并成一块，而不是每个算子一块
+    const index = segments.find((segment) => segment.kind === 'index')!;
+    expect(index.size).toBe(2);
+  });
+
+  it('collapses to one node per segment without touching the source graph', () => {
+    const parsed = parse(source, 'load');
+    const before = parsed.graph.nodes.length;
+    const collapsed = collapseGraph(parsed.graph);
+    expect(collapsed.nodes.length).toBe((parsed.graph.segments ?? []).length);
+    expect(collapsed.nodes.length).toBeLessThan(before);
+    expect(parsed.graph.nodes.length).toBe(before);
+    // every block keeps readable ports so the edges still connect
+    for (const node of collapsed.nodes) {
+      expect(node.name.length).toBeGreaterThan(0);
+      expect(node.sourceRange?.start.line).toBeGreaterThan(0);
+    }
+    expect(collapsed.edges.length).toBeGreaterThan(0);
+    expect(collapsed.values).toHaveLength(0);
+  });
+
+  it('lays collapsed blocks out in dependency layers', () => {
+    const parsed = parse(source, 'load');
+    const collapsed = collapseGraph(parsed.graph);
+    const positions = new Map(collapsed.nodes.map((node) => [node.id, node.position]));
+    for (const edge of collapsed.edges) {
+      const from = positions.get(edge.from.node)!;
+      const to = positions.get(edge.to.node)!;
+      expect(to.y).toBeGreaterThan(from.y);
+    }
   });
 });
 

@@ -1290,6 +1290,209 @@ def attach_regions(graph: dict, body: list[ast.stmt], source: str, filename: str
             {"code": "unsupported", "message": f"块视图生成失败：{exc}"})
 
 
+# ============================================================ merged segments
+# 视图层：把方法节点按"数据语义"合并成块，供画布折叠显示。
+# 与 regions（按 AST 结构切）互补：regions 管语法结构，segments 管数据流阶段。
+# 规则（B 档）：
+#   - 相邻纯计算合并成一块
+#   - 相邻"索引整理"合并成一块
+#   - I/O、类型/形态转换、形状重构各自单独成块
+#   - 模块级"加载类"代码（常量 + load_xxx 调用及其依赖）统一收进「初始化」块
+
+SEG_IO = {"read_excel", "read_csv", "read_json", "read_sql", "read_table",
+          "loadtxt", "to_csv", "to_excel", "to_json", "to_pickle", "print",
+          "open", "savefig", "imread", "imwrite", "urlopen"}
+SEG_MORPH = {"astype", "to_datetime", "to_numeric", "to_numpy", "values",
+             "array", "DataFrame", "Series", "reshape", "transpose", "T"}
+SEG_INDEX = {"set_index", "reset_index", "reindex", "rename", "rename_axis",
+             "sort_index", "sort_values", "ffill", "bfill", "dropna",
+             "fillna", "columns"}
+SEG_SHAPE = {"merge", "join", "concat", "pivot", "pivot_table", "melt",
+             "groupby", "resample", "drop", "drop_duplicates", "apply", "map"}
+SEG_UTIL = {"os", "sys", "math", "json", "time", "datetime", "re", "itertools"}
+SEG_READ = {"read_excel", "read_csv", "read_json", "read_sql", "read_table",
+            "loadtxt", "urlopen", "open", "imread"}
+SEG_MAX_LINES = 12
+
+
+def _seg_kind(node: dict) -> str:
+    name = str(node.get("name") or "")
+    callee = str(node.get("callee") or "")
+    module = callee.split(".")[0] if "." in callee else ""
+    if module in SEG_UTIL:      # os.path.join 之类是纯计算，不是形状变换
+        return "calc"
+    if name in SEG_IO:
+        return "io"
+    if name in SEG_MORPH:
+        return "morph"
+    if name in SEG_INDEX:
+        return "index"
+    if name in SEG_SHAPE:
+        return "shape"
+    return "calc"
+
+
+def _seg_span(node: dict) -> tuple[int, int]:
+    rng = node.get("sourceRange") or {}
+    start = (rng.get("start") or {}).get("line") or 0
+    end = (rng.get("end") or {}).get("line") or start
+    return start, end
+
+
+def _ordered_methods(graph: dict) -> list[dict]:
+    nodes = list(graph["nodes"])
+    if all(isinstance(n.get("order"), int) for n in nodes):
+        return sorted(nodes, key=lambda n: n["order"])
+    return nodes
+
+
+def _seg_label(nodes: list[dict], kind: str) -> str:
+    names = [str(n.get("name")) for n in nodes]
+    if kind == "init":
+        return "初始化"
+    if kind == "io":
+        return "读入数据" if any(n.startswith(("read", "load")) for n in names) else "写出数据"
+    if kind == "morph":
+        return "类型转换"
+    if kind == "index":
+        return "索引整理"
+    if kind == "shape":
+        return "形状重构"
+    operators = all(n.get("kind") == "operator" for n in nodes)
+    if operators and len(nodes) > 1:
+        return "数值计算"
+    return "计算" if len(nodes) == 1 else f"计算（{len(nodes)} 步）"
+
+
+def _init_members(graph: dict, entry_kind: str) -> set[str]:
+    """模块级 → 「初始化」块：加载类调用 + 其上游依赖 + 不流向任何输出的常量段。"""
+    if entry_kind != "module":
+        return set()
+    methods = {n["id"]: n for n in graph["nodes"]}
+    parents: dict[str, set[str]] = {nid: set() for nid in methods}
+    children: dict[str, set[str]] = {nid: set() for nid in methods}
+    for e in graph["edges"]:
+        a, b = e["from"]["node"], e["to"]["node"]
+        if a in methods and b in methods:
+            parents[b].add(a)
+            children[a].add(b)
+
+    def closure(seeds, graph_map):
+        out: set[str] = set()
+        stack = list(seeds)
+        while stack:
+            nid = stack.pop()
+            if nid in out:
+                continue
+            out.add(nid)
+            stack.extend(graph_map.get(nid, ()))
+        return out
+
+    def is_output(node: dict) -> bool:
+        name = str(node.get("name") or "")
+        return name in {"print", "savefig", "to_csv", "to_excel", "to_json", "to_pickle"}
+
+    load_seeds = [
+        nid for nid, node in methods.items()
+        if str(node.get("name") or "") in SEG_READ
+        or str(node.get("name") or "").startswith(("load", "fetch", "prepare", "setup"))
+    ]
+    init = closure(load_seeds, parents)
+    # 第一个加载调用之前的模块级常量也属于初始化
+    if load_seeds:
+        cutoff = min(_seg_span(methods[nid])[0] for nid in load_seeds)
+        for nid, node in methods.items():
+            if _seg_span(node)[0] < cutoff:
+                init.add(nid)
+    outputs = [nid for nid, node in methods.items() if is_output(node)]
+    if not load_seeds:
+        feeding = closure(outputs, parents)
+        for nid in methods:
+            if nid not in feeding and nid not in outputs:
+                init.add(nid)
+    return init
+
+
+def _segments_of(nodes: list[dict]) -> list[list[dict]]:
+    blocks: list[list[dict]] = []
+    for node in nodes:
+        kind = _seg_kind(node)
+        if not blocks:
+            blocks.append([node])
+            continue
+        prev_kind = _seg_kind(blocks[-1][-1])
+        span = _seg_span(node)[1] - _seg_span(blocks[-1][0])[0] + 1
+        mergeable = (kind == "calc" and prev_kind == "calc") or \
+                    (kind == "index" and prev_kind == "index")
+        if kind in {"io", "morph", "shape"} or not mergeable or span > SEG_MAX_LINES:
+            blocks.append([node])
+        else:
+            blocks[-1].append(node)
+    return blocks
+
+
+def build_segments(graph: dict, entry_kind: str) -> list[dict]:
+    methods = _ordered_methods(graph)
+    if not methods:
+        return []
+    init_ids = _init_members(graph, entry_kind)
+    init_nodes = [n for n in methods if n["id"] in init_ids]
+    rest = [n for n in methods if n["id"] not in init_ids]
+    blocks: list[list[dict]] = []
+    if init_nodes:
+        blocks.append(init_nodes)
+    blocks.extend(_segments_of(rest))
+
+    owner = {}
+    for i, block in enumerate(blocks):
+        for node in block:
+            owner[node["id"]] = i
+    ins = [dict() for _ in blocks]
+    outs = [dict() for _ in blocks]
+    for e in graph["edges"]:
+        a, b = e["from"]["node"], e["to"]["node"]
+        ia, ib = owner.get(a), owner.get(b)
+        if ia is None or ib is None or ia == ib:
+            continue
+        source = next((n for n in graph["nodes"] if n["id"] == a), None)
+        if source and source.get("outputs"):
+            port = source["outputs"][0]
+            outs[ia][str(port.get("name"))] = port.get("type") or "any"
+        target = next((n for n in graph["nodes"] if n["id"] == b), None)
+        if target and target.get("inputs"):
+            port = target["inputs"][0]
+            ins[ib][str(port.get("name"))] = port.get("type") or "any"
+
+    segments: list[dict] = []
+    for i, block in enumerate(blocks):
+        kind = "init" if i == 0 and init_nodes else _seg_kind(block[0])
+        start = min(_seg_span(n)[0] for n in block)
+        end = max(_seg_span(n)[1] for n in block)
+        segments.append({
+            "id": f"s{i + 1}",
+            "kind": kind,
+            "label": _seg_label(block, kind),
+            "members": [n["id"] for n in block],
+            "names": [str(n.get("name")) for n in block],
+            "startLine": start,
+            "endLine": end,
+            "size": len(block),
+            "inputs": [{"name": k, "type": v} for k, v in sorted(ins[i].items())],
+            "outputs": [{"name": k, "type": v} for k, v in sorted(outs[i].items())],
+        })
+    return segments
+
+
+def attach_segments(graph: dict, entry_kind: str) -> None:
+    try:
+        segments = build_segments(graph, entry_kind)
+        if segments:
+            graph["segments"] = segments
+    except Exception as exc:      # 分块失败不能影响主流程
+        graph.setdefault("warnings", []).append(
+            {"code": "unsupported", "message": f"合并分块失败：{exc}"})
+
+
 def analyze(payload: dict) -> dict:
     if payload.get("cells") is not None:
         return analyze_notebook(payload)
@@ -1317,6 +1520,7 @@ def analyze(payload: dict) -> dict:
         b = Builder(filename, fn.name, "function", spec_map, doc, source_range(fn), ret)
         graph = b.build(fn, tree)
         attach_regions(graph, code_body(fn), source, filename)
+        attach_segments(graph, "function")
     else:
         stem = Path(filename).stem or "module"
         b = Builder(filename, stem, "module", spec_map, "", None, None)
@@ -1326,6 +1530,7 @@ def analyze(payload: dict) -> dict:
             if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
                                   ast.Import, ast.ImportFrom))
         ], source, filename)
+        attach_segments(graph, "module")
     return {"ok": True, "graph": graph, "methods": specs, "pythonVersion": platform.python_version()}
 
 

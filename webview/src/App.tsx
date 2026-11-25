@@ -6,6 +6,7 @@ import {
 } from '../../src/core/graph';
 import { generatePython } from '../../src/core/generate';
 import { hydrateGraph } from '../../src/core/enrich';
+import { canCollapse, collapseGraph } from '../../src/core/merge';
 import type { FlowGraph, MethodSpec, Point, PortType } from '../../src/core/types';
 import { isVsCode, post, subscribe } from './host';
 import { initialState, reducer } from './store';
@@ -41,6 +42,11 @@ export default function App() {
   const [studioOpen, setStudioOpen] = useState(false);
 
   const allMethods = useMemo(() => [...state.userMethods, ...BUILTIN_METHODS], [state.userMethods]);
+  const mergedView = Boolean(state.merged && canCollapse(state.graph));
+  const canvasGraph = useMemo(
+    () => (mergedView && state.graph ? collapseGraph(state.graph) : state.graph),
+    [mergedView, state.graph],
+  );
   const fileGraph = useMemo(
     () => (state.fileGraph ? layoutFileGraph(structuredClone(state.fileGraph)) : null),
     [state.fileGraph],
@@ -613,6 +619,7 @@ export default function App() {
   }
 
   const graph = state.graph;
+  const merged = mergedView;
 
   return (
     <div className="app">
@@ -626,6 +633,8 @@ export default function App() {
         viewMode={state.viewMode}
         orientation={state.orientation}
         orientationMode={state.orientationMode}
+        merged={merged}
+        canMerge={canCollapse(graph)}
         dirty={state.dirty}
         syncing={state.syncing}
         demo={state.demo}
@@ -637,6 +646,7 @@ export default function App() {
         onCell={changeCell}
         onViewMode={changeViewMode}
         onOrientation={setOrientation}
+        onMerged={(value) => dispatch({ type: 'merged', merged: value })}
         onRefresh={refresh}
         onUndo={() => dispatch({ type: 'undo' })}
         onRedo={() => dispatch({ type: 'redo' })}
@@ -704,7 +714,8 @@ export default function App() {
                 />
               )}
               <FlowCanvas
-                graph={graph}
+                graph={canvasGraph ?? graph}
+                locked={merged}
                 selected={state.selected}
                 viewport={state.viewport}
                 fitSignal={state.fitSignal}
