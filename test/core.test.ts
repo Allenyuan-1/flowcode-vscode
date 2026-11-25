@@ -171,7 +171,51 @@ describe('layout and placement', () => {
     expect(d.position.x).toBeGreaterThan(b.position.x);
   });
 
-  it('does not put unrelated methods in the same column', () => {
+  it('converges when a child consumes an ancestor and its descendant', () => {
+    const spec = (name: string): MethodSpec => ({
+      id: name,
+      name,
+      kind: 'function',
+      category: 'test',
+      signature: `${name}(a, b)`,
+      effect: name,
+      params: [{ name: 'a', type: 'number' }, { name: 'b', type: 'number' }],
+      returns: [{ name: 'c', type: 'number' }],
+      origin: 'user',
+    });
+    const a = createMethodNode(spec('a'), { x: 0, y: 0 }, 'a');
+    const b = createMethodNode(spec('b'), { x: 0, y: 0 }, 'b');
+    const c = createMethodNode(spec('c'), { x: 0, y: 0 }, 'c');
+    const edge = (id: string, from: typeof a, to: typeof a, toIndex: number) => ({
+      id,
+      from: { node: from.id, port: from.outputs[0].id },
+      to: { node: to.id, port: to.inputs[toIndex].id },
+    });
+    const graph: FlowGraph = {
+      version: 1,
+      id: 'ancestor-sibling',
+      name: 'main',
+      language: 'python',
+      entryKind: 'module',
+      params: [],
+      returns: [],
+      nodes: [a, b, c],
+      values: [],
+      // a -> b, and both a and b feed c: forcing a and b onto one layer
+      // would demand a.up = b.up + 1 at the same time (layout must converge)
+      edges: [
+        edge('e1', a, b, 0),
+        edge('e2', a, c, 0),
+        edge('e3', b, c, 1),
+      ],
+      warnings: [],
+    };
+    layoutGraph(graph, { orientation: 'vertical', width: 900, height: 1200 });
+    expect(a.position.y).toBeLessThan(b.position.y);
+    expect(b.position.y).toBeLessThan(c.position.y);
+  });
+
+  it('lays unrelated independent methods in the same layer', () => {
     const spec = (name: string): MethodSpec => ({
       id: name,
       name,
@@ -199,7 +243,7 @@ describe('layout and placement', () => {
       warnings: [],
     };
     layoutGraph(graph, { orientation: 'horizontal', width: 1200, height: 800 });
-    expect(a.position.x).not.toBe(b.position.x);
+    expect(a.position.x).toBe(b.position.x);
   });
 
   it('puts vertical inputs on top and outputs on bottom', () => {
@@ -596,12 +640,17 @@ describe('merged blocks', () => {
     const segments = parsed.graph.segments ?? [];
     expect(segments.length).toBeGreaterThanOrEqual(3);
     const kinds = segments.map((segment) => segment.kind);
-    expect(kinds).toContain('io');
+    expect(kinds).toContain('read');
     expect(kinds).toContain('index');
     expect(kinds).toContain('morph');
     // 索引整理合并成一块，而不是每个算子一块
     const index = segments.find((segment) => segment.kind === 'index')!;
     expect(index.size).toBe(2);
+    // 读取块命名为「读取并初始化」，格式转换要明确从什么转为什么
+    const read = segments.find((segment) => segment.kind === 'read')!;
+    expect(read.label).toBe('读取并初始化');
+    const morph = segments.find((segment) => segment.kind === 'morph')!;
+    expect(morph.label).toBe('格式转换：df → float');
   });
 
   it('collapses to one node per segment without touching the source graph', () => {

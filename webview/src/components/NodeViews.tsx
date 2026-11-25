@@ -196,6 +196,11 @@ export function MethodNodeView({
                         = {input.defaultValue}
                       </span>
                     )}
+                    {!connectedIn.has(input.id) && input.defaultValue === undefined && !isBlock && (
+                      <span className="row-none" title={`未连接的必填输入，生成代码时写入 None（${node.name}.${input.name}）`}>
+                        ⚠ None
+                      </span>
+                    )}
                   </>
                 )}
               </div>

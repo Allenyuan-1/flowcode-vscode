@@ -115,17 +115,12 @@ export function TopBar(props: Props) {
         {!filesMode && (
           <div className="orientation-toggle" role="group" aria-label="流程图方向">
             <button
-              className={props.orientationMode === 'auto' ? 'is-active' : ''}
-              onClick={() => props.onOrientation('auto')}
-              title="根据窗口宽高自动选择"
-            >自动</button>
-            <button
-              className={props.orientationMode === 'manual' && props.orientation === 'horizontal' ? 'is-active' : ''}
+              className={props.orientation === 'horizontal' ? 'is-active' : ''}
               onClick={() => props.onOrientation('horizontal')}
               title="从左到右；输入在左，输出在右"
             >横</button>
             <button
-              className={props.orientationMode === 'manual' && props.orientation === 'vertical' ? 'is-active' : ''}
+              className={props.orientation === 'vertical' ? 'is-active' : ''}
               onClick={() => props.onOrientation('vertical')}
               title="从上到下；输入在上，输出在下"
             >竖</button>
@@ -138,10 +133,10 @@ export function TopBar(props: Props) {
             disabled={!props.canMerge}
             onClick={() => props.onMerged(!props.merged)}
             title={props.canMerge
-              ? '把相邻的计算/整理合并成块，看清数据流阶段'
+              ? '把目标一致的方法块按功能合并（库引用 / 读取初始化 / 数据处理 / 格式转换…）'
               : '当前函数没有可合并的分块信息'}
           >
-            {props.merged ? '合并' : '结构'}
+            {props.merged ? '按功能合并' : '结构'}
           </button>
         )}
         <div className={`sync-pill ${props.dirty ? 'is-dirty' : 'is-clean'}`} title={props.dirty ? '流程图有未写回代码的修改' : '流程图与代码一致'}>

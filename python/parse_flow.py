@@ -1299,9 +1299,11 @@ def attach_regions(graph: dict, body: list[ast.stmt], source: str, filename: str
 #   - I/O、类型/形态转换、形状重构各自单独成块
 #   - 模块级"加载类"代码（常量 + load_xxx 调用及其依赖）统一收进「初始化」块
 
-SEG_IO = {"read_excel", "read_csv", "read_json", "read_sql", "read_table",
-          "loadtxt", "to_csv", "to_excel", "to_json", "to_pickle", "print",
-          "open", "savefig", "imread", "imwrite", "urlopen"}
+SEG_UTIL = {"os", "sys", "math", "json", "time", "datetime", "re", "itertools"}
+SEG_READ = {"read_excel", "read_csv", "read_json", "read_sql", "read_table",
+            "loadtxt", "urlopen", "open", "imread"}
+SEG_WRITE = {"to_csv", "to_excel", "to_json", "to_pickle", "print", "savefig",
+             "imwrite"}
 SEG_MORPH = {"astype", "to_datetime", "to_numeric", "to_numpy", "values",
              "array", "DataFrame", "Series", "reshape", "transpose", "T"}
 SEG_INDEX = {"set_index", "reset_index", "reindex", "rename", "rename_axis",
@@ -1309,9 +1311,6 @@ SEG_INDEX = {"set_index", "reset_index", "reindex", "rename", "rename_axis",
              "fillna", "columns"}
 SEG_SHAPE = {"merge", "join", "concat", "pivot", "pivot_table", "melt",
              "groupby", "resample", "drop", "drop_duplicates", "apply", "map"}
-SEG_UTIL = {"os", "sys", "math", "json", "time", "datetime", "re", "itertools"}
-SEG_READ = {"read_excel", "read_csv", "read_json", "read_sql", "read_table",
-            "loadtxt", "urlopen", "open", "imread"}
 SEG_MAX_LINES = 12
 
 
@@ -1319,10 +1318,12 @@ def _seg_kind(node: dict) -> str:
     name = str(node.get("name") or "")
     callee = str(node.get("callee") or "")
     module = callee.split(".")[0] if "." in callee else ""
-    if module in SEG_UTIL:      # os.path.join 之类是纯计算，不是形状变换
-        return "calc"
-    if name in SEG_IO:
-        return "io"
+    if module in SEG_UTIL:      # os.path.join 之类：库引用，不是形状变换
+        return "lib"
+    if name in SEG_READ or name.startswith(("load", "fetch", "prepare", "setup")):
+        return "read"
+    if name in SEG_WRITE:
+        return "write"
     if name in SEG_MORPH:
         return "morph"
     if name in SEG_INDEX:
@@ -1348,12 +1349,16 @@ def _ordered_methods(graph: dict) -> list[dict]:
 
 def _seg_label(nodes: list[dict], kind: str) -> str:
     names = [str(n.get("name")) for n in nodes]
-    if kind == "init":
-        return "初始化"
-    if kind == "io":
-        return "读入数据" if any(n.startswith(("read", "load")) for n in names) else "写出数据"
+    if kind == "read":
+        return "读取并初始化"
+    if kind == "lib":
+        modules = [str(n.get("callee") or "").rpartition(".")[0] for n in nodes]
+        prefix = max(set(modules), key=modules.count) if modules else ""
+        return f"库引用：{prefix}" if prefix else "库引用"
+    if kind == "write":
+        return "写出数据"
     if kind == "morph":
-        return "类型转换"
+        return _morph_label(nodes[0])
     if kind == "index":
         return "索引整理"
     if kind == "shape":
@@ -1361,56 +1366,28 @@ def _seg_label(nodes: list[dict], kind: str) -> str:
     operators = all(n.get("kind") == "operator" for n in nodes)
     if operators and len(nodes) > 1:
         return "数值计算"
-    return "计算" if len(nodes) == 1 else f"计算（{len(nodes)} 步）"
+    return "数据处理" if len(nodes) == 1 else f"数据处理（{len(nodes)} 步）"
 
 
-def _init_members(graph: dict, entry_kind: str) -> set[str]:
-    """模块级 → 「初始化」块：加载类调用 + 其上游依赖 + 不流向任何输出的常量段。"""
-    if entry_kind != "module":
-        return set()
-    methods = {n["id"]: n for n in graph["nodes"]}
-    parents: dict[str, set[str]] = {nid: set() for nid in methods}
-    children: dict[str, set[str]] = {nid: set() for nid in methods}
-    for e in graph["edges"]:
-        a, b = e["from"]["node"], e["to"]["node"]
-        if a in methods and b in methods:
-            parents[b].add(a)
-            children[a].add(b)
+_MORPH_TARGETS = {
+    "to_datetime": "datetime", "to_numeric": "numeric",
+    "to_numpy": "numpy 数组", "values": "numpy 数组", "array": "numpy 数组",
+}
 
-    def closure(seeds, graph_map):
-        out: set[str] = set()
-        stack = list(seeds)
-        while stack:
-            nid = stack.pop()
-            if nid in out:
-                continue
-            out.add(nid)
-            stack.extend(graph_map.get(nid, ()))
-        return out
 
-    def is_output(node: dict) -> bool:
-        name = str(node.get("name") or "")
-        return name in {"print", "savefig", "to_csv", "to_excel", "to_json", "to_pickle"}
-
-    load_seeds = [
-        nid for nid, node in methods.items()
-        if str(node.get("name") or "") in SEG_READ
-        or str(node.get("name") or "").startswith(("load", "fetch", "prepare", "setup"))
-    ]
-    init = closure(load_seeds, parents)
-    # 第一个加载调用之前的模块级常量也属于初始化
-    if load_seeds:
-        cutoff = min(_seg_span(methods[nid])[0] for nid in load_seeds)
-        for nid, node in methods.items():
-            if _seg_span(node)[0] < cutoff:
-                init.add(nid)
-    outputs = [nid for nid, node in methods.items() if is_output(node)]
-    if not load_seeds:
-        feeding = closure(outputs, parents)
-        for nid in methods:
-            if nid not in feeding and nid not in outputs:
-                init.add(nid)
-    return init
+def _morph_label(node: dict) -> str:
+    """格式转换要明确从什么转为什么，如「格式转换：df → float」。"""
+    name = str(node.get("name") or "")
+    inputs = node.get("inputs") or []
+    source = str(inputs[0].get("name") or "") if inputs else ""
+    target = _MORPH_TARGETS.get(name)
+    if target is None and len(inputs) > 1:
+        target = str(inputs[1].get("name") or "")
+    if not target:
+        target = name
+    if source and source != "self":
+        return f"格式转换：{source} → {target}"
+    return f"格式转换：{target}"
 
 
 def _segments_of(nodes: list[dict]) -> list[list[dict]]:
@@ -1422,26 +1399,21 @@ def _segments_of(nodes: list[dict]) -> list[list[dict]]:
             continue
         prev_kind = _seg_kind(blocks[-1][-1])
         span = _seg_span(node)[1] - _seg_span(blocks[-1][0])[0] + 1
-        mergeable = (kind == "calc" and prev_kind == "calc") or \
-                    (kind == "index" and prev_kind == "index")
-        if kind in {"io", "morph", "shape"} or not mergeable or span > SEG_MAX_LINES:
+        # 目标一致的相邻块合并：库引用 / 读取初始化 / 数据处理 / 索引整理。
+        # 写出、格式转换、形状重构各自独立，块名保持明确。
+        mergeable = (kind == prev_kind) and kind in {"lib", "read", "calc", "index"}
+        if not mergeable or kind in {"write", "morph", "shape"} or span > SEG_MAX_LINES:
             blocks.append([node])
         else:
             blocks[-1].append(node)
     return blocks
 
 
-def build_segments(graph: dict, entry_kind: str) -> list[dict]:
+def build_segments(graph: dict) -> list[dict]:
     methods = _ordered_methods(graph)
     if not methods:
         return []
-    init_ids = _init_members(graph, entry_kind)
-    init_nodes = [n for n in methods if n["id"] in init_ids]
-    rest = [n for n in methods if n["id"] not in init_ids]
-    blocks: list[list[dict]] = []
-    if init_nodes:
-        blocks.append(init_nodes)
-    blocks.extend(_segments_of(rest))
+    blocks = _segments_of(methods)
 
     owner = {}
     for i, block in enumerate(blocks):
@@ -1465,7 +1437,7 @@ def build_segments(graph: dict, entry_kind: str) -> list[dict]:
 
     segments: list[dict] = []
     for i, block in enumerate(blocks):
-        kind = "init" if i == 0 and init_nodes else _seg_kind(block[0])
+        kind = _seg_kind(block[0])
         start = min(_seg_span(n)[0] for n in block)
         end = max(_seg_span(n)[1] for n in block)
         segments.append({
@@ -1483,9 +1455,9 @@ def build_segments(graph: dict, entry_kind: str) -> list[dict]:
     return segments
 
 
-def attach_segments(graph: dict, entry_kind: str) -> None:
+def attach_segments(graph: dict, entry_kind: str = "") -> None:
     try:
-        segments = build_segments(graph, entry_kind)
+        segments = build_segments(graph)
         if segments:
             graph["segments"] = segments
     except Exception as exc:      # 分块失败不能影响主流程

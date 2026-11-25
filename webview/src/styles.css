@@ -1260,6 +1260,17 @@ body.vscode-light .node {
   opacity: 0.8;
 }
 
+/* 未连接必填输入的 None 警告，直接写在接口参数行上 */
+.row-none {
+  margin-left: auto;
+  padding-right: 3px;
+  white-space: nowrap;
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--fc-red, #e55f4e);
+  opacity: 0.9;
+}
+
 /* ports */
 .port {
   position: absolute;

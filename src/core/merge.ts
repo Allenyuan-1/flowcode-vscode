@@ -129,12 +129,13 @@ function blockId(segmentId: string): string {
 
 function blockKindLabel(kind: string): string {
   switch (kind) {
-    case 'init': return '初始化';
-    case 'io': return '读入';
-    case 'morph': return '转换';
-    case 'index': return '整理';
-    case 'shape': return '重构';
-    default: return '计算';
+    case 'init': case 'read': return '读取并初始化';
+    case 'lib': return '库引用';
+    case 'io': case 'write': return '写出数据';
+    case 'morph': return '格式转换';
+    case 'index': return '索引整理';
+    case 'shape': return '形状重构';
+    default: return '数据处理';
   }
 }
 

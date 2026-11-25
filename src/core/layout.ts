@@ -48,113 +48,77 @@ function deps(graph: FlowGraph): Map<string, Set<string>> {
   return map;
 }
 
-function groupedLayers(graph: FlowGraph): MethodNode[][] {
-  if (!graph.nodes.length) return [];
-  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+/**
+ * Upstream/downstream layer model. Every method block has an upstream layer
+ * (input side) and a downstream layer (output side); normally
+ * upstream = downstream + 1, and a child's upstream equals its parent's
+ * downstream. Methods without dependencies therefore share a layer, and when
+ * several parents feed one child their downstream layers are unified to the
+ * larger one — which aligns the parents on the same layer. Values stay
+ * transparent: they never own a layer, they sit on the layer line between a
+ * producer's downstream and a consumer's upstream.
+ */
+function layersOf(graph: FlowGraph): MethodNode[][] {
   const depsMap = deps(graph);
-  const rank = (node: MethodNode) =>
-    node.order !== undefined ? node.order : 1_000_000 + node.position.y * 1000 + node.position.x;
-
-  const children = new Map<string, Set<string>>();
-  for (const node of graph.nodes) children.set(node.id, new Set());
-  const candidates: string[][] = [];
-  for (const [child, parents] of depsMap) {
-    if (parents.size > 1) candidates.push([...parents]);
-    for (const parent of parents) children.get(parent)?.add(child);
-  }
-  for (const [, kids] of children) {
-    if (kids.size > 1) candidates.push([...kids]);
-  }
-
-  const parent = new Map<string, string>();
-  const members = new Map<string, Set<string>>();
-  for (const node of graph.nodes) {
-    parent.set(node.id, node.id);
-    members.set(node.id, new Set([node.id]));
-  }
-  const find = (id: string): string => {
-    let root = id;
-    while (parent.get(root) && parent.get(root) !== root) root = parent.get(root)!;
-    return root;
-  };
-  const containsDependency = (ids: Set<string>): boolean => {
-    for (const id of ids) {
-      const stack = [...(depsMap.get(id) ?? [])];
-      const seen = new Set<string>();
-      while (stack.length) {
-        const dependency = stack.pop()!;
-        if (ids.has(dependency)) return true;
-        if (seen.has(dependency)) continue;
-        seen.add(dependency);
-        stack.push(...(depsMap.get(dependency) ?? []));
-      }
+  const nodes = graph.nodes;
+  const up = new Map<string, number>(nodes.map((node) => [node.id, 0]));
+  const limit = nodes.length;
+  const reaches = (from: string, to: string): boolean => {
+    const seen = new Set<string>();
+    const stack = [from];
+    while (stack.length) {
+      const current = stack.pop()!;
+      if (current === to) return true;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      for (const next of depsMap.get(current) ?? []) stack.push(next);
     }
     return false;
   };
-  const unionGroup = (group: string[]): void => {
-    for (let i = 1; i < group.length; i += 1) {
-      const rootA = find(group[0]);
-      const rootB = find(group[i]);
-      if (rootA === rootB) continue;
-      const a = members.get(rootA)!;
-      const b = members.get(rootB)!;
-      const combined = new Set([...a, ...b]);
-      // A method cannot be in the same column as its ancestor/descendant.
-      if (containsDependency(combined)) continue;
-      parent.set(rootA, rootB);
-      members.set(rootB, combined);
-      members.delete(rootA);
-    }
-  };
-  for (const candidate of candidates) unionGroup(candidate);
-
-  const roots: string[] = [...members.keys()];
-  const adj = new Map<string, Set<string>>();
-  const indegree = new Map<string, number>();
-  for (const root of roots) {
-    adj.set(root, new Set());
-    indegree.set(root, 0);
-  }
-  for (const [child, parents] of depsMap) {
-    const childRoot = find(child);
-    for (const dependency of parents) {
-      const parentRoot = find(dependency);
-      if (parentRoot === childRoot) continue;
-      if (!adj.get(parentRoot)!.has(childRoot)) {
-        adj.get(parentRoot)!.add(childRoot);
-        indegree.set(childRoot, (indegree.get(childRoot) ?? 0) + 1);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      const parents = depsMap.get(node.id) ?? new Set<string>();
+      if (!parents.size) continue;
+      let maxUp = 0;
+      for (const parent of parents) {
+        const candidate = Math.min(limit, (up.get(parent) ?? 0) + 1);
+        if (candidate > maxUp) maxUp = candidate;
+      }
+      if ((up.get(node.id) ?? 0) < maxUp) {
+        up.set(node.id, maxUp);
+        changed = true;
+      }
+      // Parents sharing a child take the larger downstream layer
+      // (downstream = upstream + 1), so they end up on the same layer.
+      // A parent that is also an ancestor of another parent must stay
+      // upstream: forcing both onto one layer would demand
+      // parent.up = descendant.up + 1 at the same time, and the iteration
+      // would ratchet forever (e.g. tuple consuming x and x/y).
+      // depsMap walks upstream (child -> parent), so "parent is an ancestor
+      // of other" reads as: walking upstream from other reaches parent.
+      const aligned = maxUp - 1;
+      for (const parent of parents) {
+        if ((up.get(parent) ?? 0) >= aligned) continue;
+        const related = [...parents].some((other) => other !== parent && reaches(other, parent));
+        if (related) continue;
+        up.set(parent, aligned);
+        changed = true;
       }
     }
   }
-
-  const rootRank = (root: string): number => {
-    const nodes = [...(members.get(root) ?? [])].map((id) => byId.get(id)!).filter(Boolean);
-    return Math.min(...nodes.map(rank));
-  };
-  const ready = roots.filter((root) => (indegree.get(root) ?? 0) === 0);
-  ready.sort((a, b) => rootRank(a) - rootRank(b));
-  const ordered: string[] = [];
-  while (ready.length) {
-    const root = ready.shift()!;
-    ordered.push(root);
-    for (const next of adj.get(root) ?? []) {
-      indegree.set(next, (indegree.get(next) ?? 1) - 1);
-      if (indegree.get(next) === 0) {
-        ready.push(next);
-        ready.sort((a, b) => rootRank(a) - rootRank(b));
-      }
-    }
+  const rank = (node: MethodNode) =>
+    node.order !== undefined ? node.order : 1_000_000 + node.position.y * 1000 + node.position.x;
+  const byLayer = new Map<number, MethodNode[]>();
+  for (const node of graph.nodes) {
+    const layer = up.get(node.id) ?? 0;
+    if (!byLayer.has(layer)) byLayer.set(layer, []);
+    byLayer.get(layer)!.push(node);
   }
-  if (ordered.length < roots.length) {
-    ordered.push(...roots.filter((root) => !ordered.includes(root)).sort((a, b) => rootRank(a) - rootRank(b)));
-  }
-
-  return ordered.map((root) =>
-    [...(members.get(root) ?? [])]
-      .map((id) => byId.get(id)!)
-      .filter(Boolean)
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)),
-  );
+  return [...byLayer.keys()]
+    .sort((a, b) => a - b)
+    .map((layer) => byLayer.get(layer)!.sort((a, b) => rank(a) - rank(b)));
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -525,7 +489,7 @@ function centerIn(graph: FlowGraph, options: LayoutOptions): void {
  */
 export function layoutGraph(graph: FlowGraph, options: LayoutOptions = {}): FlowGraph {
   const orientation = options.orientation ?? 'horizontal';
-  const groups = groupedLayers(graph);
+  const groups = layersOf(graph);
   if (orientation === 'vertical') placeVertical(graph, groups, options);
   else placeHorizontal(graph, groups, options);
   placeValues(graph, orientation);
