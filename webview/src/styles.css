@@ -3820,3 +3820,116 @@ body.vscode-light .error-banner.is-syntax {
 }
 .orientation-toggle button:hover { color: var(--fc-text); }
 .orientation-toggle button.is-active { color: var(--fc-accent); background: color-mix(in srgb, var(--fc-accent) 13%, transparent); }
+
+/* ---------------------------------------------------------------- block view */
+.blockview-launch {
+  position: fixed;
+  left: 14px;
+  bottom: 40px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--fc-border);
+  border-radius: 13px;
+  background: var(--fc-panel-2);
+  color: var(--fc-muted);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.blockview-launch:hover { border-color: color-mix(in srgb, var(--fc-accent) 55%, transparent); color: var(--fc-text); }
+.blockview-count { color: var(--fc-accent); font-family: var(--fc-mono); }
+
+.blockview-panel {
+  position: fixed;
+  left: 0;
+  top: 48px;
+  bottom: 26px;
+  width: 620px;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  background: var(--fc-panel);
+  border-right: 1px solid var(--fc-border);
+  box-shadow: 2px 0 18px rgba(0, 0, 0, 0.45);
+  font-family: inherit;
+  color: var(--fc-text);
+}
+.blockview-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--fc-border); }
+.blockview-title { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+.blockview-stat { font-size: 9.5px; color: var(--fc-dim); font-family: var(--fc-mono); }
+.blockview-close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--fc-dim);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.blockview-close:hover { background: var(--fc-panel-3); color: var(--fc-text); }
+
+.blockview-modes { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--fc-border); }
+.blockview-mode {
+  border: 1px solid var(--fc-border);
+  border-radius: 11px;
+  padding: 2px 10px;
+  background: transparent;
+  color: var(--fc-dim);
+  font-family: inherit;
+  font-size: 9.5px;
+  cursor: pointer;
+}
+.blockview-mode.is-on {
+  border-color: color-mix(in srgb, var(--fc-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--fc-accent) 16%, transparent);
+  color: var(--fc-accent);
+}
+.blockview-hint { margin-left: auto; font-size: 9px; color: var(--fc-dim); }
+
+.blockview-stage { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+.blockview-empty { margin: 16px 4px; font-size: 10.5px; color: var(--fc-dim); line-height: 1.8; white-space: pre-line; }
+
+.blockview-detail { border-top: 1px solid var(--fc-border); max-height: 200px; overflow: auto; }
+.blockview-detail-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 12px;
+  background: var(--fc-panel-2);
+  border-bottom: 1px solid var(--fc-border);
+  font-size: 9px;
+  color: var(--fc-dim);
+  font-family: var(--fc-mono);
+}
+.blockview-detail-head b { color: var(--fc-text); font-size: 10.5px; font-family: inherit; }
+
+.blockview-node {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fc-muted);
+  font-family: inherit;
+  font-size: 9.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.blockview-node:hover { background: color-mix(in srgb, var(--fc-accent) 12%, transparent); color: var(--fc-text); }
+.blockview-node-line { min-width: 30px; text-align: right; color: var(--fc-dim); font-family: var(--fc-mono); }
+.blockview-node-name { font-weight: 600; color: var(--fc-text); white-space: nowrap; }
+.blockview-node-effect { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fc-dim); }
+
+.blockview-foot { padding: 4px 12px; border-top: 1px solid var(--fc-border); font-size: 8.5px; color: var(--fc-dim); }

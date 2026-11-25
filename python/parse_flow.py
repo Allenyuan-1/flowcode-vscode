@@ -13,6 +13,7 @@ Python 3.9+ interpreter that VS Code can find.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import platform
 import sys
@@ -1029,6 +1030,251 @@ def analyze_notebook(payload: dict) -> dict:
     return {"ok": True, "graph": graph, "methods": specs, "pythonVersion": platform.python_version()}
 
 
+# ============================================================== block regions
+# 视图层：把扁平的数据流图按 AST 结构折叠成"块"。不参与代码生成，
+# 只影响渲染与导航。全部确定性规则，无模型、无网络。
+
+def _r_span(node: ast.AST) -> tuple[int, int]:
+    return (getattr(node, "lineno", 1),
+            getattr(node, "end_lineno", getattr(node, "lineno", 1)))
+
+
+def _r_names(node: ast.AST, ctx) -> set[str]:
+    return {n.id for n in ast.walk(node)
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ctx)}
+
+
+def _r_label_for_stmt(st: ast.stmt) -> str:
+    """简单语句块的规则名。"""
+    got = []
+    for n in ast.walk(st):
+        if isinstance(n, ast.Return):
+            got.append("return")
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            if n.id not in got:
+                got.append(n.id)
+    if got:
+        return "计算 " + "、".join(got[:3])
+    text = unparse(st).replace("\n", " ")
+    return text[:26] + ("…" if len(text) > 26 else "")
+
+
+def _r_case_label(test: ast.AST) -> str:
+    """if/elif 条件压成人能一眼扫过的块名。"""
+    if (isinstance(test, ast.Call) and isinstance(test.func, ast.Name)
+            and test.func.id == "isinstance" and len(test.args) == 2):
+        subj = unparse(test.args[0])
+        targets = test.args[1]
+        parts = targets.elts if isinstance(targets, (ast.Tuple, ast.List)) else [targets]
+        names = [t.attr if isinstance(t, ast.Attribute) else getattr(t, "id", "?")
+                 for t in parts]
+        return f"{subj} 是 {'/'.join(names)}"
+    text = unparse(test).replace("\n", " ")
+    return text if len(text) <= 28 else text[:27] + "…"
+
+
+def _r_cluster(stmts: list[ast.stmt], max_len: int = 5) -> list[list[ast.stmt]]:
+    """连续简单语句按 def-use 局部性聚成语义段落。"""
+    groups: list[list[ast.stmt]] = []
+    cur: list[ast.stmt] = []
+    cur_defs: set[str] = set()
+    for st in stmts:
+        if cur and (not (_r_names(st, ast.Load) & cur_defs) or len(cur) >= max_len):
+            groups.append(cur)
+            cur, cur_defs = [], set()
+        cur.append(st)
+        cur_defs |= _r_names(st, ast.Store) | _r_names(st, ast.Load)
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def build_regions(body: list[ast.stmt], graph: dict, lines: list[str]) -> list[dict]:
+    raw: list[dict] = []
+    linear: list[ast.stmt] = []
+    chain = 0
+
+    def flush_linear() -> None:
+        nonlocal linear
+        for group in _r_cluster(linear):
+            raw.append({
+                "kind": "linear",
+                "label": _r_label_for_stmt(group[0]),
+                "startLine": _r_span(group[0])[0],
+                "endLine": _r_span(group[-1])[1],
+            })
+        linear = []
+
+    def add_if_chain(st: ast.If) -> None:
+        nonlocal chain
+        chain += 1
+        cur = st
+        while True:
+            end = _r_span(cur.body[-1])[1] if cur.body else _r_span(cur)[1]
+            raw.append({"kind": "case", "label": _r_case_label(cur.test),
+                        "condition": unparse(cur.test),
+                        "startLine": _r_span(cur)[0], "endLine": end, "chain": chain})
+            if len(cur.orelse) == 1 and isinstance(cur.orelse[0], ast.If):
+                cur = cur.orelse[0]
+                continue
+            if cur.orelse:
+                raw.append({"kind": "case", "label": "否则",
+                            "startLine": _r_span(cur.orelse[0])[0],
+                            "endLine": _r_span(cur.orelse[-1])[1], "chain": chain})
+            break
+
+    for st in body:
+        if isinstance(st, ast.If):
+            flush_linear()
+            add_if_chain(st)
+        elif isinstance(st, (ast.For, ast.While, ast.Try, ast.With)) or \
+                type(st).__name__ == "Match":
+            flush_linear()
+            raw.append({"kind": type(st).__name__.lower(),
+                        "label": unparse(st).split("\n")[0][:26],
+                        "startLine": _r_span(st)[0], "endLine": _r_span(st)[1]})
+        elif isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                             ast.Import, ast.ImportFrom)):
+            flush_linear()
+        else:
+            linear.append(st)
+    flush_linear()
+
+    raw.sort(key=lambda r: (r["startLine"], r["endLine"]))
+    for i in range(1, len(raw)):                     # 去重叠
+        if raw[i]["startLine"] <= raw[i - 1]["endLine"]:
+            raw[i]["startLine"] = raw[i - 1]["endLine"] + 1
+    raw = [r for r in raw if r["startLine"] <= r["endLine"]]
+
+    # ---- 投影：图元素按 sourceRange.start.line 落到 region
+    for i, r in enumerate(raw):
+        r["id"] = f"r{i + 1}"
+        r["nodes"], r["values"] = [], []
+    for item in graph["nodes"]:
+        line = (item.get("sourceRange") or {}).get("start", {}).get("line")
+        if not line:
+            continue
+        for r in raw:
+            if r["startLine"] <= line <= r["endLine"]:
+                r["nodes"].append(item["id"])
+                break
+    for item in graph.get("values", []):
+        line = (item.get("sourceRange") or {}).get("start", {}).get("line")
+        if not line:
+            continue
+        for r in raw:
+            if r["startLine"] <= line <= r["endLine"]:
+                r["values"].append(item["id"])
+                break
+
+    # ---- 碎片合并：小且无跨块连线的相邻块
+    owner: dict[str, str] = {}
+    for r in raw:
+        for m in r["nodes"] + r["values"]:
+            owner[m] = r["id"]
+    degree: dict[str, int] = {}
+    for e in graph["edges"]:
+        a, b = owner.get(e["from"]["node"]), owner.get(e["to"]["node"])
+        if a and b and a != b:
+            degree[a] = degree.get(a, 0) + 1
+            degree[b] = degree.get(b, 0) + 1
+
+    merged: list[dict] = []
+    buf: list[dict] = []
+
+    def flush_buf() -> None:
+        nonlocal buf
+        if len(buf) == 1:
+            merged.append(buf[0])
+        elif buf:
+            merged.append({
+                "kind": "misc",
+                "label": f"其余 {len(buf)} 个小分支",
+                "startLine": buf[0]["startLine"],
+                "endLine": buf[-1]["endLine"],
+                "nodes": [m for r in buf for m in r["nodes"]],
+                "values": [m for r in buf for m in r["values"]],
+            })
+        buf = []
+
+    for r in raw:
+        if len(r["nodes"]) < 3 and degree.get(r["id"], 0) <= 1:
+            buf.append(r)
+        else:
+            flush_buf()
+            merged.append(r)
+    flush_buf()
+    # 块太少时不要合并：小函数本来就没几个块，合并只会把结构抹平
+    if len(raw) < 8:
+        merged = list(raw)
+
+    # ---- 端口：跨块传递的变量
+    out_name = {n["id"]: n["outputs"][0]["name"]
+                for n in graph["nodes"] if n.get("outputs")}
+    for i, r in enumerate(merged):
+        r["id"] = f"r{i + 1}"
+        r["inputs"], r["outputs"] = [], []
+    owner = {}
+    for r in merged:
+        for m in r["nodes"] + r["values"]:
+            owner[m] = r["id"]
+    pins: dict[str, set[str]] = {r["id"]: set() for r in merged}
+    pouts: dict[str, set[str]] = {r["id"]: set() for r in merged}
+    pairs: set[tuple[str, str]] = set()
+    for e in graph["edges"]:
+        a, b = owner.get(e["from"]["node"]), owner.get(e["to"]["node"])
+        if not a or not b or a == b:
+            continue
+        var = out_name.get(e["from"]["node"])
+        if var:
+            pouts[a].add(var)
+            pins[b].add(var)
+        pairs.add((a, b))
+    for r in merged:
+        r["inputs"] = sorted(pins[r["id"]])
+        r["outputs"] = sorted(pouts[r["id"]])
+        r["size"] = len(r["nodes"])
+        r["edgesOut"] = sorted({b for a, b in pairs if a == r["id"]})
+        # 块内容指纹：给"离线命名缓存"当 key
+        chunk = "\n".join(lines[r["startLine"] - 1:r["endLine"]])
+        r["hash"] = hashlib.sha1(chunk.encode("utf-8")).hexdigest()[:12]
+    return merged
+
+
+def load_block_names(filename: str) -> dict:
+    """读取 .flowcode/names.json（由离线命名工具生成，可选）。"""
+    try:
+        d = Path(filename).resolve().parent
+        for _ in range(8):
+            p = d / ".flowcode" / "names.json"
+            if p.is_file():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                return data if isinstance(data, dict) else {}
+            if d.parent == d:
+                break
+            d = d.parent
+    except Exception:
+        pass
+    return {}
+
+
+def attach_regions(graph: dict, body: list[ast.stmt], source: str, filename: str) -> None:
+    if not source.strip():
+        return
+    try:
+        regions = build_regions(body, graph, source.splitlines())
+        names = load_block_names(filename)
+        for r in regions:
+            hit = names.get(r.get("hash") or "")
+            if isinstance(hit, str) and hit.strip():
+                r["name"] = hit.strip()[:24]
+        if regions:
+            graph["regions"] = regions
+    except Exception as exc:      # 分块失败绝不能影响主流程
+        graph.setdefault("warnings", []).append(
+            {"code": "unsupported", "message": f"块视图生成失败：{exc}"})
+
+
 def analyze(payload: dict) -> dict:
     if payload.get("cells") is not None:
         return analyze_notebook(payload)
@@ -1055,10 +1301,16 @@ def analyze(payload: dict) -> dict:
         ret = unparse(fn.returns) if fn.returns else None
         b = Builder(filename, fn.name, "function", spec_map, doc, source_range(fn), ret)
         graph = b.build(fn, tree)
+        attach_regions(graph, fn.body, source, filename)
     else:
         stem = Path(filename).stem or "module"
         b = Builder(filename, stem, "module", spec_map, "", None, None)
         graph = b.build(None, tree)
+        attach_regions(graph, [
+            s for s in tree.body
+            if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                                  ast.Import, ast.ImportFrom))
+        ], source, filename)
     return {"ok": True, "graph": graph, "methods": specs, "pythonVersion": platform.python_version()}
 
 
