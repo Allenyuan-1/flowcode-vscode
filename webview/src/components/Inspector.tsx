@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FlowGraph, FlowWarning, MethodNode, Port, PortType, ValueNode } from '../../../src/core/types';
 import { findNode, isValueNode } from '../../../src/core/graph';
@@ -74,24 +75,78 @@ function SectionTitle({ children, extra }: { children: ReactNode; extra?: ReactN
   );
 }
 
+/**
+ * Diagnostics are dominated by repeats: a single `if` chain emits the same
+ * "分支按顺序展开" message once per branch, so a 140-line function shows
+ * dozens of identical cards. Group by message and surface the count instead;
+ * the individual lines stay one click away.
+ */
 function WarningList({ warnings, onReveal }: { warnings: FlowWarning[]; onReveal: (line: number) => void }) {
   if (!warnings.length) return null;
+  const groups: { code: string; message: string; lines: number[] }[] = [];
+  for (const warning of warnings) {
+    const hit = groups.find((group) => group.message === warning.message);
+    if (hit) {
+      if (warning.line && !hit.lines.includes(warning.line)) hit.lines.push(warning.line);
+    } else {
+      groups.push({
+        code: warning.code,
+        message: warning.message,
+        lines: warning.line ? [warning.line] : [],
+      });
+    }
+  }
+  groups.sort((a, b) => b.lines.length - a.lines.length);
+  const shown = groups.slice(0, 8);
   return (
     <div className="warning-list">
-      {warnings.slice(0, 8).map((warning, index) => (
-        <button
-          className={`warning-row ${warning.code === 'control-flow' ? 'is-control' : ''}`}
-          key={`${warning.code}-${index}`}
-          onClick={() => warning.line && onReveal(warning.line)}
-          title={warning.message}
+      {shown.map((group) => (
+        <div
+          className={`warning-row is-group ${group.code === 'control-flow' ? 'is-control' : ''}`}
+          key={group.message}
+          title={group.message}
         >
           <Warning size={12} />
-          <span className="warning-text">{warning.message}</span>
-          {warning.line && <span className="warning-line">L{warning.line}</span>}
-        </button>
+          <span className="warning-text">{group.message}</span>
+          {group.lines.length > 1 && <span className="warning-count">×{group.lines.length}</span>}
+          <span className="warning-lines">
+            {group.lines.slice(0, 4).map((line) => (
+              <button key={line} className="warning-chip" onClick={() => onReveal(line)} title={`跳到第 ${line} 行`}>
+                L{line}
+              </button>
+            ))}
+            {group.lines.length > 4 && <span className="warning-chip is-more">+{group.lines.length - 4}</span>}
+          </span>
+        </div>
       ))}
-      {warnings.length > 8 && <div className="warning-more">还有 {warnings.length - 8} 条提示</div>}
+      {groups.length > shown.length && (
+        <div className="warning-more">还有 {groups.length - shown.length} 类提示</div>
+      )}
     </div>
+  );
+}
+
+/** Long value lists (a dispatcher can have 20 `return`s) are collapsed. */
+function FlowIoList({
+  values, empty, render, limit = 6,
+}: {
+  values: ValueNode[];
+  empty: string;
+  render: (value: ValueNode) => ReactNode;
+  limit?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!values.length) return <div className="empty-inline">{empty}</div>;
+  const shown = expanded ? values : values.slice(0, limit);
+  return (
+    <>
+      {shown.map((value) => render(value))}
+      {values.length > limit && (
+        <button className="flow-io-more" onClick={() => setExpanded((open) => !open)}>
+          {expanded ? '收起' : `还有 ${values.length - limit} 个`}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -558,33 +613,35 @@ function Overview({
 
       <SectionTitle extra={<button className="mini-btn" onClick={onAddInput}><Plus size={12} /> 添加</button>}>流程输入</SectionTitle>
       <div className="flow-io-list">
-        {graph.values.filter((v) => v.kind === 'input').length === 0 && (
-          <div className="empty-inline">没有输入参数</div>
-        )}
-        {graph.values.filter((v) => v.kind === 'input').map((value) => (
-          <button className="flow-io-row" key={value.id} onClick={() => onSelect({ kind: 'value', id: value.id })}>
-            <span className="param-dot" style={{ background: portColor(value.type) }} />
-            <span className="flow-io-name">{value.name}</span>
-            {params.get(value.name)?.defaultValue !== undefined && (
-              <span className="flow-io-default">={params.get(value.name)!.defaultValue}</span>
-            )}
-            <span className="flow-io-type" style={{ color: portColor(value.type) }}>{typeLabel(value.type, value.annotation)}</span>
-          </button>
-        ))}
+        <FlowIoList
+          values={graph.values.filter((v) => v.kind === 'input')}
+          empty="没有输入参数"
+          render={(value) => (
+            <button className="flow-io-row" key={value.id} onClick={() => onSelect({ kind: 'value', id: value.id })}>
+              <span className="param-dot" style={{ background: portColor(value.type) }} />
+              <span className="flow-io-name">{value.name}</span>
+              {params.get(value.name)?.defaultValue !== undefined && (
+                <span className="flow-io-default">={params.get(value.name)!.defaultValue}</span>
+              )}
+              <span className="flow-io-type" style={{ color: portColor(value.type) }}>{typeLabel(value.type, value.annotation)}</span>
+            </button>
+          )}
+        />
       </div>
 
       <SectionTitle extra={<button className="mini-btn" onClick={onAddOutput}><Plus size={12} /> 添加</button>}>流程输出</SectionTitle>
       <div className="flow-io-list">
-        {graph.values.filter((v) => v.kind === 'output').length === 0 && (
-          <div className="empty-inline">没有输出，生成代码时不会 return</div>
-        )}
-        {graph.values.filter((v) => v.kind === 'output').map((value) => (
-          <button className="flow-io-row" key={value.id} onClick={() => onSelect({ kind: 'value', id: value.id })}>
-            <span className="param-dot hollow" style={{ borderColor: portColor(value.type) }} />
-            <span className="flow-io-name">{value.name}</span>
-            <span className="flow-io-type" style={{ color: portColor(value.type) }}>{typeLabel(value.type, value.annotation)}</span>
-          </button>
-        ))}
+        <FlowIoList
+          values={graph.values.filter((v) => v.kind === 'output')}
+          empty="没有输出，生成代码时不会 return"
+          render={(value) => (
+            <button className="flow-io-row" key={value.id} onClick={() => onSelect({ kind: 'value', id: value.id })}>
+              <span className="param-dot hollow" style={{ borderColor: portColor(value.type) }} />
+              <span className="flow-io-name">{value.name}</span>
+              <span className="flow-io-type" style={{ color: portColor(value.type) }}>{typeLabel(value.type, value.annotation)}</span>
+            </button>
+          )}
+        />
       </div>
 
       {warnings.length > 0 && (

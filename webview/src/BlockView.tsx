@@ -117,7 +117,7 @@ function layout(depths: Map<string, number>, regions: BlockRegion[]) {
   const width = spec.reduce((max, layer) => Math.max(max, layer.width), 0);
 
   const placed = new Map<string, Placed>();
-  const boxes: { depth: number; y: number; height: number }[] = [];
+  const boxes: { depth: number; y: number; height: number; count: number }[] = [];
   let y = 0;
   for (const layer of spec) {
     const x0 = (width - layer.width) / 2;
@@ -130,7 +130,7 @@ function layout(depths: Map<string, number>, regions: BlockRegion[]) {
         y: y + row * (CARD_H + GAP_Y),
       });
     });
-    boxes.push({ depth: layer.depth, y, height: layer.height });
+    boxes.push({ depth: layer.depth, y, height: layer.height, count: layer.items.length });
     y += layer.height + LAYER_GAP;
   }
   return { placed, boxes, width, height: Math.max(0, y - LAYER_GAP) };
@@ -253,7 +253,7 @@ export function BlockView({ graph, onReveal }: Props) {
                       rx={9} fill="rgba(255,255,255,0.025)" stroke="rgba(255,255,255,0.05)"
                     />
                     <text x={8} y={box.y + 12} fill="var(--fc-dim)" fontSize={9}>
-                      第 {box.depth} 层
+                      第 {box.depth} 层 · {box.count} 块
                     </text>
                   </g>
                 ))}
