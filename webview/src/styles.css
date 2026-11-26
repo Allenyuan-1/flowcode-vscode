@@ -3911,20 +3911,45 @@ body.vscode-light .error-banner.is-syntax {
 }
 .merged-panel-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--fc-border);
 }
 .merged-panel-head b { font-size: 12px; }
-.merged-panel-head span { font-size: 9px; color: var(--fc-dim); font-family: var(--fc-mono); }
+.merged-panel-head > span { font-size: 9px; color: var(--fc-dim); font-family: var(--fc-mono); }
+.merged-panel-actions { margin-left: auto; display: flex; gap: 6px; }
+.merged-panel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--fc-border-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fc-text);
+  font-family: inherit;
+  font-size: 9.5px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.merged-panel-btn:hover { background: var(--fc-panel-3); }
+.merged-panel-btn.danger:hover { color: var(--fc-red, #e55f4e); border-color: var(--fc-red, #e55f4e); }
 .merged-panel-list { overflow-y: auto; padding: 4px; }
 .merged-panel-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  padding: 5px 8px;
+  border-radius: 5px;
+}
+.merged-panel-row:hover { background: var(--fc-panel-3); }
+.merged-panel-locate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 2px 5px 8px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -3933,12 +3958,82 @@ body.vscode-light .error-banner.is-syntax {
   text-align: left;
   cursor: pointer;
 }
-.merged-panel-row:hover { background: var(--fc-panel-3); }
+.merged-panel-del {
+  flex: none;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fc-dim);
+  padding: 4px 6px;
+  cursor: pointer;
+  opacity: 0;
+}
+.merged-panel-row:hover .merged-panel-del { opacity: 1; }
+.merged-panel-del:hover { color: var(--fc-red, #e55f4e); background: var(--fc-panel-3); }
 .merged-panel-line { flex: none; width: 22px; font-size: 8.5px; color: var(--fc-dim); font-family: var(--fc-mono); }
 .merged-panel-name { flex: none; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
 .merged-panel-effect { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; color: var(--fc-dim); }
 .merged-panel-row svg { flex: none; color: var(--fc-dim); }
 .merged-panel-foot { padding: 6px 12px; border-top: 1px solid var(--fc-border); font-size: 8.5px; color: var(--fc-dim); }
+
+/* AI 调整对话框 */
+.merged-adjust-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.merged-adjust {
+  width: min(560px, 92%);
+  max-height: 82%;
+  display: flex;
+  flex-direction: column;
+  background: var(--fc-panel);
+  border: 1px solid var(--fc-border-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
+  padding: 12px 14px;
+  gap: 8px;
+  color: var(--fc-text);
+}
+.merged-adjust-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+}
+.merged-adjust-label { font-size: 9px; color: var(--fc-dim); }
+.merged-adjust-req {
+  resize: none;
+  background: var(--fc-node);
+  border: 1px solid var(--fc-border);
+  border-radius: 6px;
+  color: var(--fc-text);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 8px 10px;
+}
+.merged-adjust-code {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  background: var(--fc-node);
+  border: 1px solid var(--fc-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--fc-mono);
+  font-size: 9.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--fc-dim);
+}
+.merged-adjust-code.new { color: var(--fc-green, #2ea469); border-color: var(--fc-green, #2ea469); }
+.merged-adjust-error { font-size: 9.5px; color: var(--fc-red, #e55f4e); }
+.merged-adjust-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 
 /* 结构视图缩放过小（节点不可读）时的建议条 */
 .canvas-suggest {

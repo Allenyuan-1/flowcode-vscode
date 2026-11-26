@@ -176,6 +176,11 @@ function selectionAlive(graph: FlowGraph, selection: Selection): boolean {
     if (!node) return graph.values.some((item) => item.id === selection.node);
     return [...node.inputs, ...node.outputs].some((port) => port.id === selection.port);
   }
+  // merged-view selections point at blocks (`blk:<segmentId>`), which live
+  // in graph.segments rather than among nodes/values
+  if (selection.id.startsWith('blk:')) {
+    return Boolean(graph.segments?.some((segment) => `blk:${segment.id}` === selection.id));
+  }
   return [...graph.nodes, ...graph.values].some((item) => item.id === selection.id);
 }
 

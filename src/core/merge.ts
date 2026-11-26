@@ -1,4 +1,4 @@
-import { nodeHeight, NODE_WIDTH } from './graph';
+import { nodeHeight, NODE_WIDTH, removeNodes, uid } from './graph';
 import type { FlowEdge, FlowGraph, MethodNode, Port, PortType, Segment } from './types';
 
 const ROW_GAP = 44;
@@ -152,4 +152,198 @@ export function canCollapse(graph: FlowGraph | null | undefined): boolean {
 export function segmentMembers(graph: FlowGraph, segment: Segment): MethodNode[] {
   const byId = new Map(graph.nodes.map((node) => [node.id, node]));
   return segment.members.map((id) => byId.get(id)).filter((node): node is MethodNode => Boolean(node));
+}
+
+/**
+ * Refresh segments after nodes were removed: drop dangling members, remove
+ * empty blocks, and recompute block ports from the remaining cross-block
+ * edges (mirrors the port aggregation in parse_flow.py).
+ */
+export function pruneSegments(graph: FlowGraph, removedIds: Set<string>): void {
+  const segments = graph.segments ?? [];
+  if (!segments.length) return;
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const alive: Segment[] = [];
+  for (const segment of segments) {
+    const members = segment.members.filter((id) => !removedIds.has(id));
+    if (!members.length) continue;
+    alive.push({ ...segment, members, size: members.length });
+  }
+  const owner = new Map<string, number>();
+  alive.forEach((segment, index) => segment.members.forEach((id) => owner.set(id, index)));
+  const ins = alive.map(() => new Map<string, string>());
+  const outs = alive.map(() => new Map<string, string>());
+  for (const edge of graph.edges) {
+    const ia = owner.get(edge.from.node);
+    const ib = owner.get(edge.to.node);
+    if (ia === undefined || ib === undefined || ia === ib) continue;
+    const source = byId.get(edge.from.node);
+    const target = byId.get(edge.to.node);
+    if (source?.outputs[0]) outs[ia].set(source.outputs[0].name, source.outputs[0].type);
+    if (target?.inputs[0]) ins[ib].set(target.inputs[0].name, target.inputs[0].type);
+  }
+  alive.forEach((segment, index) => {
+    segment.inputs = [...ins[index].entries()].map(([name, type]) => ({ name, type }));
+    segment.outputs = [...outs[index].entries()].map(([name, type]) => ({ name, type }));
+    segment.names = segment.members.map((id) => byId.get(id)?.name ?? '');
+    const starts = segment.members
+      .map((id) => byId.get(id)?.sourceRange?.start.line)
+      .filter((line): line is number => line !== undefined);
+    const ends = segment.members
+      .map((id) => byId.get(id)?.sourceRange?.end.line)
+      .filter((line): line is number => line !== undefined);
+    if (starts.length) segment.startLine = Math.min(...starts);
+    if (ends.length) segment.endLine = Math.max(...ends);
+  });
+  graph.segments = alive.length ? alive : undefined;
+}
+
+/**
+ * A mini graph holding one block's members, their boundary values and the
+ * edges among them — used to render the block's code for AI adjustment.
+ */
+export function blockSubGraph(graph: FlowGraph, segment: Segment): FlowGraph {
+  const memberIds = new Set(segment.members);
+  const nodes = graph.nodes.filter((node) => memberIds.has(node.id));
+  const boundaryValues = graph.values.filter(
+    (value) => !value.hidden && graph.edges.some((edge) =>
+      (memberIds.has(edge.from.node) && edge.to.node === value.id) ||
+      (memberIds.has(edge.to.node) && edge.from.node === value.id)),
+  );
+  const valueIds = new Set(boundaryValues.map((value) => value.id));
+  const edges = graph.edges.filter((edge) =>
+    (memberIds.has(edge.from.node) && memberIds.has(edge.to.node)) ||
+    (memberIds.has(edge.from.node) && valueIds.has(edge.to.node)) ||
+    (valueIds.has(edge.from.node) && memberIds.has(edge.to.node)));
+  const params = boundaryValues
+    .filter((value) => graph.edges.some((edge) => edge.from.node === value.id && memberIds.has(edge.to.node)))
+    .map((value) => ({ name: value.name, type: value.type, annotation: value.annotation }));
+  const returns = boundaryValues
+    .filter((value) => graph.edges.some((edge) => edge.to.node === value.id && memberIds.has(edge.from.node)))
+    .map((value) => ({ name: value.name, type: value.type, annotation: value.annotation }));
+  return {
+    version: 1,
+    id: `block:${segment.id}`,
+    name: 'block',
+    doc: segment.label,
+    language: 'python',
+    entryKind: 'function',
+    params,
+    returns,
+    returnType: returns[0]?.type,
+    nodes,
+    values: boundaryValues,
+    edges,
+    warnings: [],
+    segments: undefined,
+    regions: undefined,
+  };
+}
+
+/**
+ * Replace a block's members with nodes from another graph (e.g. the parsed
+ * result of an AI adjustment). Boundary edges are rewired by port NAME:
+ * free variables in the replacement bind to the values that fed the old
+ * members, and replacement outputs bind to the old consumers.
+ */
+export function replaceBlockMembers(graph: FlowGraph, segment: Segment, replacement: FlowGraph): void {
+  const memberIds = new Set(segment.members);
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+
+  // remember how the block was wired to the outside world, keyed by port name
+  const inByName = new Map<string, { node: string; port: string }>();
+  const outByName = new Map<string, { node: string; port: string }>();
+  for (const edge of graph.edges) {
+    const fromIn = memberIds.has(edge.from.node);
+    const toIn = memberIds.has(edge.to.node);
+    if (fromIn === toIn) continue;
+    if (fromIn) {
+      const source = byId.get(edge.from.node);
+      const port = source?.outputs.find((item) => item.id === edge.from.port);
+      if (port) outByName.set(port.name, { node: edge.to.node, port: edge.to.port });
+    } else {
+      const target = byId.get(edge.to.node);
+      const port = target?.inputs.find((item) => item.id === edge.to.port);
+      if (port) inByName.set(port.name, { node: edge.from.node, port: edge.from.port });
+    }
+  }
+
+  removeNodes(graph, [...memberIds]);
+
+  // clone the replacement with fresh ids; ports are re-keyed to their owner
+  const nodeIdMap = new Map<string, string>();
+  const nodePortMap = new Map<string, string>();
+  for (const node of replacement.nodes) {
+    const id = uid('n');
+    nodeIdMap.set(node.id, id);
+    node.inputs.forEach((port, index) => nodePortMap.set(port.id, `${id}:in:${index}`));
+    node.outputs.forEach((port, index) => nodePortMap.set(port.id, `${id}:out:${index}`));
+    graph.nodes.push({
+      ...node,
+      id,
+      key: id,
+      inputs: node.inputs.map((port, index) => ({ ...port, id: `${id}:in:${index}` })),
+      outputs: node.outputs.map((port, index) => ({ ...port, id: `${id}:out:${index}` })),
+    });
+  }
+  const valueIdMap = new Map<string, string>();
+  const valuePortMap = new Map<string, string>();
+  for (const value of replacement.values) {
+    const id = uid('v');
+    valueIdMap.set(value.id, id);
+    valuePortMap.set(`${value.id}:out`, `${id}:out`);
+    valuePortMap.set(`${value.id}:in`, `${id}:in`);
+  }
+
+  // classify replacement values: inputs bind to outside feeders, outputs
+  // bind to outside consumers, intermediates stay inside
+  const consumed = new Set(replacement.values
+    .filter((value) => replacement.edges.some((edge) => edge.to.node === value.id))
+    .map((value) => value.id));
+  const produced = new Set(replacement.values
+    .filter((value) => replacement.edges.some((edge) => edge.from.node === value.id))
+    .map((value) => value.id));
+
+  for (const value of replacement.values) {
+    const isOutput = consumed.has(value.id) && !produced.has(value.id);
+    const isInput = produced.has(value.id) && !consumed.has(value.id);
+    if (isInput && inByName.has(value.name)) continue; // binds to the outside feeder
+    if (isOutput && outByName.has(value.name)) continue; // binds to the outside consumer
+    graph.values.push({ ...value, id: valueIdMap.get(value.id)!, key: valueIdMap.get(value.id)! });
+  }
+
+  for (const edge of replacement.edges) {
+    const fromNode = nodeIdMap.get(edge.from.node);
+    const toNode = nodeIdMap.get(edge.to.node);
+    const fromValue = valueIdMap.get(edge.from.node);
+    const toValue = valueIdMap.get(edge.to.node);
+    let from: { node: string; port: string } | null = null;
+    let to: { node: string; port: string } | null = null;
+    if (fromNode) from = { node: fromNode, port: nodePortMap.get(edge.from.port) ?? edge.from.port };
+    else if (fromValue) {
+      const value = replacement.values.find((item) => item.id === edge.from.node)!;
+      // an input value in the replacement binds to the outside feeder
+      // that used to feed the old member input of the same name
+      const outside = inByName.get(value.name);
+      if (outside) from = outside;
+      else from = { node: fromValue, port: `${fromValue}:out` };
+    }
+    if (toNode) to = { node: toNode, port: nodePortMap.get(edge.to.port) ?? edge.to.port };
+    else if (toValue) {
+      const value = replacement.values.find((item) => item.id === edge.to.node)!;
+      // an output value in the replacement binds to the outside consumer
+      // that used to read the old member output of the same name
+      const outside = outByName.get(value.name);
+      if (outside) to = outside;
+      else to = { node: toValue, port: `${toValue}:in` };
+    }
+    if (!from || !to) continue;
+    graph.edges.push({ id: uid('e'), from, to });
+  }
+
+  // the replacement nodes continue this segment's story
+  const seg = (graph.segments ?? []).find((item) => item.id === segment.id);
+  if (seg) seg.members = [...nodeIdMap.values()];
+
+  pruneSegments(graph, memberIds);
 }

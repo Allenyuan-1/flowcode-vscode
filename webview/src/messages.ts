@@ -1,4 +1,4 @@
-import type { CellInfo, FileGraph } from '../../src/core/types';
+import type { CellInfo, FileGraph, FlowGraph } from '../../src/core/types';
 import type { StudioDraft } from '../../src/core/studio';
 
 export interface NotebookInfo {
@@ -29,7 +29,8 @@ export type HostToWebview =
   | { type: 'imported'; data: string }
   | { type: 'fileGraph'; graph: FileGraph; root: string }
   | { type: 'studioKeyStatus'; hasKey: boolean }
-  | { type: 'studioResult'; draft: StudioDraft; source: 'ai' | 'local'; error?: string };
+  | { type: 'studioResult'; draft: StudioDraft; source: 'ai' | 'local'; error?: string }
+  | { type: 'snippetParsed'; graph?: FlowGraph; error?: string };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -46,4 +47,5 @@ export type WebviewToHost =
   | { type: 'scanFiles' }
   | { type: 'studioKeyStatus' }
   | { type: 'studioSaveKey'; key: string }
-  | { type: 'studioGenerate'; requirements: string; code?: string; apiKey?: string };
+  | { type: 'studioGenerate'; requirements: string; code?: string; apiKey?: string }
+  | { type: 'parseSnippet'; code: string };

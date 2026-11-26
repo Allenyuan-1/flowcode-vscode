@@ -5,10 +5,10 @@ import { demoGraph, demoMethods } from '../src/core/sample';
 import { generatePython } from '../src/core/generate';
 import { hydrateGraph } from '../src/core/enrich';
 import {
-  connect, connectionError, createMethodNode, createValueNode, findFreeSpot, graphBounds, nodeHeight, NODE_WIDTH, portPosition,
+  connect, connectionError, createMethodNode, createValueNode, findFreeSpot, graphBounds, nodeHeight, NODE_WIDTH, portPosition, removeNodes,
 } from '../src/core/graph';
 import { layoutGraph } from '../src/core/layout';
-import { collapseGraph } from '../src/core/merge';
+import { collapseGraph, pruneSegments, replaceBlockMembers } from '../src/core/merge';
 import type { FlowGraph, MethodSpec, ParseResult } from '../src/core/types';
 
 const root = process.cwd();
@@ -654,6 +654,71 @@ describe('merged blocks', () => {
     expect(read.label).toBe('读取并初始化');
     const morph = segments.find((segment) => segment.kind === 'morph')!;
     expect(morph.label).toBe('格式转换：df → float');
+  });
+
+  it('prunes deleted members and refreshes block ports', () => {
+    const parsed = parse(source, 'load');
+    const graph = parsed.graph;
+    const before = (graph.segments ?? []).length;
+    const memberId = graph.segments![0].members[0];
+    removeNodes(graph, [memberId]);
+    pruneSegments(graph, new Set([memberId]));
+    for (const segment of graph.segments ?? []) {
+      expect(segment.members.length).toBeGreaterThan(0);
+      for (const id of segment.members) {
+        expect(graph.nodes.some((node) => node.id === id)).toBe(true);
+      }
+    }
+    expect((graph.segments ?? []).length).toBeLessThanOrEqual(before);
+  });
+
+  it('replaces a block with a spliced graph and rewires boundaries by name', () => {
+    const flowSource = [
+      'def flow(df):',
+      '    a = df.sum()',
+      '    b = a / 2',
+      '    return b',
+    ].join('\n');
+    const parsed = parse(flowSource, 'flow');
+    const graph = parsed.graph;
+    const segment = graph.segments![0];
+    const memberIds = new Set(segment.members);
+    const dfValue = graph.values.find((value) => value.name === 'df')!;
+    const bValue = graph.values.find((value) => value.kind === 'output' || value.name === 'b')!;
+    expect(memberIds.size).toBeGreaterThan(0);
+
+    // the "AI adjustment" result: same computation, different implementation
+    const adjusted = parse([
+      'def block(df):',
+      '    a = df.sum()',
+      '    b = a * 0.5',
+      '    return b',
+    ].join('\n'), 'block');
+    replaceBlockMembers(graph, segment, adjusted.graph);
+
+    // old members are gone; the replacement nodes carry the segment
+    for (const id of memberIds) {
+      expect(graph.nodes.some((node) => node.id === id)).toBe(false);
+    }
+    expect(graph.nodes.length).toBe(2);
+    expect(segment.members.length).toBe(2);
+    expect(graph.nodes.some((node) => node.name === 'mul')).toBe(true);
+
+    // boundaries rewired by name: df feeds the new sum, the new mul feeds b
+    const dfToSum = graph.edges.some((edge) =>
+      edge.from.node === dfValue.id && graph.nodes.some((node) =>
+        node.id === edge.to.node && node.name === 'sum'));
+    const mulToB = graph.edges.some((edge) =>
+      edge.to.node === bValue.id && graph.nodes.some((node) =>
+        node.id === edge.from.node && node.name === 'mul'));
+    expect(dfToSum).toBe(true);
+    expect(mulToB).toBe(true);
+    // every edge endpoint exists
+    const allIds = new Set([...graph.nodes.map((node) => node.id), ...graph.values.map((value) => value.id)]);
+    for (const edge of graph.edges) {
+      expect(allIds.has(edge.from.node)).toBe(true);
+      expect(allIds.has(edge.to.node)).toBe(true);
+    }
   });
 
   it('merges all writes into one block and names calc blocks semantically', () => {

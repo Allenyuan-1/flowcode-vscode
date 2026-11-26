@@ -775,6 +775,17 @@ export class FlowCodeManager implements vscode.Disposable {
           typeof message.apiKey === 'string' ? message.apiKey : undefined,
         );
         break;
+      case 'parseSnippet': {
+        // parse a code snippet (e.g. the AI-adjusted block) back into a graph
+        const code = String(message.code ?? '');
+        try {
+          const parsed = await parseWithPython(code, { filename: 'block-adjust.py' });
+          this.post({ type: 'snippetParsed', graph: parsed.graph });
+        } catch (error) {
+          this.post({ type: 'snippetParsed', error: (error as Error).message });
+        }
+        break;
+      }
       case 'openSettings':
         await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:flowcode');
         break;

@@ -1,7 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FlowGraph } from '../../../src/core/types';
-import { segmentMembers } from '../../../src/core/merge';
-import { ExternalLink } from '../icons';
+import { blockSubGraph, segmentMembers } from '../../../src/core/merge';
+import { generatePython } from '../../../src/core/generate';
+import { isVsCode, post, subscribe } from '../host';
+import { ExternalLink, Sparkles, Trash } from '../icons';
+import type { HostToWebview } from '../messages';
 
 interface Props {
   /** The ORIGINAL (structure) graph: segments and their member nodes live here. */
@@ -10,48 +13,180 @@ interface Props {
   selectedId: string;
   /** Jump back to the structure view and reveal the member. */
   onLocate: (nodeId: string, line?: number) => void;
+  /** Remove one member node from the block. */
+  onDeleteMember: (nodeId: string) => void;
+  /** Remove the whole block (all members). */
+  onDeleteBlock: () => void;
+  /** Apply an AI-adjusted replacement graph for the block's members. */
+  onSplice: (replacement: FlowGraph) => void;
 }
 
 /**
- * Drill-down for 「按功能合并」: the selected block lists its member methods
- * (line + name + effect). Clicking a member leaves the merged view and
- * selects that node in the structure view, so the merged diagram finally
- * works as a navigator instead of a dead end.
+ * 「按功能合并」块面板：点块下钻成员，成员可删除、整块可删除，还能用
+ * AI 调整——把块的代码和你的要求发给 AI，返回的新代码解析后替换块内
+ * 成员（边界按端口名重新接线），再「应用到代码」写回源码。
  */
-export function MergedBlockPanel({ graph, selectedId, onLocate }: Props) {
+export function MergedBlockPanel({ graph, selectedId, onLocate, onDeleteMember, onDeleteBlock, onSplice }: Props) {
   const segment = useMemo(() => {
     const segmentId = selectedId.startsWith('blk:') ? selectedId.slice(4) : '';
     return (graph.segments ?? []).find((item) => item.id === segmentId) ?? null;
   }, [graph, selectedId]);
 
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [requirement, setRequirement] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustError, setAdjustError] = useState('');
+  const [adjustPreview, setAdjustPreview] = useState('');
+  // stable ref so the host-message subscription always sees the current
+  // dialog state (a plain object recreated per render would go stale in
+  // the effect closure)
+  const adjustRef = useRef({ open: false, busy: false });
+  adjustRef.current.open = adjustOpen;
+  adjustRef.current.busy = adjusting;
+
+  // AI adjustment round trip: studioGenerate -> studioResult -> parseSnippet -> splice
+  useEffect(() => {
+    const unsubscribe = subscribe((message: HostToWebview) => {
+      if (message.type === 'studioResult') {
+        if (!adjustRef.current.open) return;
+        const code = message.draft?.code;
+        if (code) {
+          setAdjustPreview(code);
+          if (isVsCode) post({ type: 'parseSnippet', code });
+        } else {
+          setAdjusting(false);
+          setAdjustError(message.error ?? 'AI 没有返回代码');
+        }
+        return;
+      }
+      if (message.type === 'snippetParsed') {
+        if (!adjustRef.current.open || !adjustRef.current.busy) return;
+        if (message.graph) {
+          setAdjusting(false);
+          setAdjustOpen(false);
+          setAdjustError('');
+          onSplice(message.graph);
+        } else {
+          setAdjusting(false);
+          setAdjustError(message.error ?? '解析失败');
+        }
+      }
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSplice]);
+
   if (!segment) return null;
   const members = segmentMembers(graph, segment);
+  const blockCode = useMemo(() => {
+    try {
+      return generatePython(blockSubGraph(graph, segment)).code ?? '';
+    } catch {
+      return '';
+    }
+  }, [graph, segment]);
+
+  const runAdjust = () => {
+    setAdjustError('');
+    setAdjustPreview('');
+    setAdjusting(true);
+    post({
+      type: 'studioGenerate',
+      requirements: `调整这段代码。要求：${requirement || '保持行为不变，改进实现'}\n代码块名：${segment.label}`,
+      code: blockCode,
+    });
+  };
+
   return (
-    <aside className="merged-panel" aria-label="块成员">
-      <header className="merged-panel-head">
-        <b>{segment.label}</b>
-        <span>{segment.size} 个成员 · L{segment.startLine}–{segment.endLine}</span>
-      </header>
-      <div className="merged-panel-list">
-        {members.map((node) => {
-          const line = node.sourceRange?.start.line;
-          return (
+    <>
+      <aside className="merged-panel" aria-label="块成员">
+        <header className="merged-panel-head">
+          <b>{segment.label}</b>
+          <span>{segment.size} 个成员 · L{segment.startLine}–{segment.endLine}</span>
+          <div className="merged-panel-actions">
             <button
               type="button"
-              key={node.id}
-              className="merged-panel-row"
-              title={line !== undefined ? `回到结构视图并定位第 ${line} 行` : '回到结构视图并选中'}
-              onClick={() => onLocate(node.id, line)}
+              className="merged-panel-btn"
+              title="让 AI 调整这个块的实现（返回的新代码替换块内成员）"
+              onClick={() => { setAdjustOpen(true); setRequirement(''); setAdjustError(''); }}
             >
-              <span className="merged-panel-line">{line ?? '—'}</span>
-              <span className="merged-panel-name">{node.name}</span>
-              <span className="merged-panel-effect">{node.effect}</span>
-              <ExternalLink size={11} />
+              <Sparkles size={12} /> AI 调整
             </button>
-          );
-        })}
-      </div>
-      <footer className="merged-panel-foot">点成员 → 回到结构视图并选中该节点</footer>
-    </aside>
+            <button
+              type="button"
+              className="merged-panel-btn danger"
+              title="删除整块（块内所有方法节点）"
+              onClick={onDeleteBlock}
+            >
+              <Trash size={12} />
+            </button>
+          </div>
+        </header>
+        <div className="merged-panel-list">
+          {members.map((node) => {
+            const line = node.sourceRange?.start.line;
+            return (
+              <div className="merged-panel-row" key={node.id}>
+                <button
+                  type="button"
+                  className="merged-panel-locate"
+                  title={line !== undefined ? `回到结构视图并定位第 ${line} 行` : '回到结构视图并选中'}
+                  onClick={() => onLocate(node.id, line)}
+                >
+                  <span className="merged-panel-line">{line ?? '—'}</span>
+                  <span className="merged-panel-name">{node.name}</span>
+                  <span className="merged-panel-effect">{node.effect}</span>
+                </button>
+                <button
+                  type="button"
+                  className="merged-panel-del"
+                  title={`从块中删除 ${node.name}`}
+                  onClick={() => onDeleteMember(node.id)}
+                >
+                  <Trash size={11} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <footer className="merged-panel-foot">点成员 → 回结构视图选中 · 删除成员/整块即时生效 · AI 调整可重写块内实现</footer>
+      </aside>
+
+      {adjustOpen && (
+        <div className="merged-adjust-backdrop" onClick={() => !adjusting && setAdjustOpen(false)}>
+          <div className="merged-adjust" onClick={(event) => event.stopPropagation()}>
+            <header className="merged-adjust-head">
+              <b>AI 调整 · {segment.label}</b>
+              <button type="button" className="icon-btn" onClick={() => setAdjustOpen(false)} title="关闭">×</button>
+            </header>
+            <label className="merged-adjust-label">调整要求（留空 = 保持行为不变，改进实现）</label>
+            <textarea
+              className="merged-adjust-req"
+              value={requirement}
+              onChange={(event) => setRequirement(event.target.value)}
+              placeholder="例如：改成向量化实现；修复可能的除零；把循环换成列表推导…"
+              rows={2}
+            />
+            <label className="merged-adjust-label">当前代码（AI 上下文）</label>
+            <pre className="merged-adjust-code">{blockCode || '（该块没有可生成的代码）'}</pre>
+            {adjustPreview && (
+              <>
+                <label className="merged-adjust-label">AI 返回的新代码</label>
+                <pre className="merged-adjust-code new">{adjustPreview}</pre>
+              </>
+            )}
+            {adjustError && <div className="merged-adjust-error">{adjustError}</div>}
+            <div className="merged-adjust-foot">
+              <button type="button" className="btn ghost" onClick={() => setAdjustOpen(false)} disabled={adjusting}>
+                取消
+              </button>
+              <button type="button" className="btn primary" onClick={runAdjust} disabled={adjusting || !isVsCode}>
+                <Sparkles size={13} /> {adjusting ? '调整中…' : 'AI 调整'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -6,7 +6,7 @@ import {
 } from '../../src/core/graph';
 import { generatePython } from '../../src/core/generate';
 import { hydrateGraph } from '../../src/core/enrich';
-import { canCollapse, collapseGraph } from '../../src/core/merge';
+import { canCollapse, collapseGraph, pruneSegments, replaceBlockMembers } from '../../src/core/merge';
 import type { FlowGraph, MethodSpec, Point, PortType } from '../../src/core/types';
 import { isVsCode, post, subscribe } from './host';
 import { initialState, reducer } from './store';
@@ -319,13 +319,15 @@ export default function App() {
   }, [addMethodAt]);
 
   const deleteNode = useCallback((id: string) => {
+    // selection cleanup happens in the mutate reducer (dead selections are
+    // dropped automatically — and merged-view block selections survive)
     dispatch({
       type: 'mutate',
       mutate: (graph) => {
         removeNodes(graph, [id]);
+        pruneSegments(graph, new Set([id]));
       },
     });
-    dispatch({ type: 'select', selection: null });
   }, []);
 
   const deleteValue = useCallback((id: string) => {
@@ -335,7 +337,6 @@ export default function App() {
         removeNodes(graph, [id]);
       },
     });
-    dispatch({ type: 'select', selection: null });
   }, []);
 
   const deleteEdgeById = useCallback((id: string) => {
@@ -345,7 +346,20 @@ export default function App() {
         removeEdge(graph, id);
       },
     });
-    dispatch({ type: 'select', selection: null });
+  }, []);
+
+  const deleteBlockMembers = useCallback((segmentId: string) => {
+    const graph = stateRef.current.graph;
+    const segment = graph?.segments?.find((item) => item.id === segmentId);
+    if (!graph || !segment) return;
+    const ids = new Set(segment.members);
+    dispatch({
+      type: 'mutate',
+      mutate: (draft) => {
+        removeNodes(draft, [...ids]);
+        pruneSegments(draft, ids);
+      },
+    });
   }, []);
 
   const deleteSelection = useCallback(() => {
@@ -353,8 +367,9 @@ export default function App() {
     if (!selection) return;
     if (selection.kind === 'edge') deleteEdgeById(selection.id);
     else if (selection.kind === 'port') return;
+    else if (selection.id.startsWith('blk:')) deleteBlockMembers(selection.id.slice(4));
     else deleteNode(selection.id);
-  }, [deleteEdgeById, deleteNode]);
+  }, [deleteEdgeById, deleteNode, deleteBlockMembers]);
 
   const addInput = useCallback(() => {
     const graph = stateRef.current.graph;
@@ -767,6 +782,30 @@ export default function App() {
                     dispatch({ type: 'merged', merged: false });
                     dispatch({ type: 'select', selection: { kind: 'node', id: nodeId } });
                     if (line !== undefined) reveal(line);
+                  }}
+                  onDeleteMember={(nodeId) => deleteNode(nodeId)}
+                  onDeleteBlock={() => {
+                    const selId = state.selected?.kind === 'node' ? state.selected.id : '';
+                    deleteBlockMembers(selId.startsWith('blk:') ? selId.slice(4) : '');
+                  }}
+                  onSplice={(replacement) => {
+                    const sel = stateRef.current.selected;
+                    const segmentId = sel?.kind === 'node' && sel.id.startsWith('blk:')
+                      ? sel.id.slice(4)
+                      : '';
+                    const segment = stateRef.current.graph?.segments?.find((item) => item.id === segmentId);
+                    if (!segment) return;
+                    dispatch({
+                      type: 'mutate',
+                      mutate: (draft) => {
+                        const current = draft.segments?.find((item) => item.id === segmentId);
+                        if (current) replaceBlockMembers(draft, current, replacement);
+                      },
+                    });
+                    window.requestAnimationFrame(() => {
+                      canvasApi.current?.reflow();
+                      dispatch({ type: 'fit' });
+                    });
                   }}
                 />
               )}
