@@ -302,7 +302,7 @@ describe('layout and placement', () => {
     expect(xiangjia.position.y).toBeGreaterThan(add.position.y);
   });
 
-  it('wraps a row that is wider than the window instead of pushing blocks off-screen', () => {
+  it('keeps a wide parallel layer on one row and lets fit handle the width', () => {
     const spec = (name: string): MethodSpec => ({
       id: name,
       name,
@@ -314,7 +314,7 @@ describe('layout and placement', () => {
       returns: [{ name: 'c', type: 'number' }],
       origin: 'user',
     });
-    // six parallel producers feed one consumer: one row would be ~1900px wide
+    // six parallel producers feed one consumer: one row ~1900px wide
     const producers = Array.from({ length: 6 }, (_, i) =>
       createMethodNode(spec(`p${i}`), { x: 0, y: 0 }, `p${i}`));
     const sink = createMethodNode(
@@ -329,7 +329,7 @@ describe('layout and placement', () => {
     }));
     const graph: FlowGraph = {
       version: 1,
-      id: 'vertical-wrap',
+      id: 'vertical-parallel-row',
       name: 'main',
       language: 'python',
       entryKind: 'module',
@@ -342,15 +342,18 @@ describe('layout and placement', () => {
     };
     const width = 900;
     layoutGraph(graph, { orientation: 'vertical', width, height: 1400 });
-    // nothing may stick out horizontally: every block stays inside the canvas
-    for (const node of graph.nodes) {
-      expect(node.position.x).toBeGreaterThanOrEqual(0);
-      expect(node.position.x + NODE_WIDTH).toBeLessThanOrEqual(width);
+    // one layer = one row: all producers share the same y and never overlap
+    const ys = new Set(producers.map((node) => Math.round(node.position.y)));
+    expect(ys.size).toBe(1);
+    const xs = producers.map((node) => node.position.x).sort((a, b) => a - b);
+    for (let i = 1; i < xs.length; i += 1) {
+      expect(xs[i] - xs[i - 1]).toBeGreaterThanOrEqual(NODE_WIDTH);
     }
-    // the producers no longer share a single line
-    const rows = new Set(producers.map((node) => Math.round(node.position.y)));
-    expect(rows.size).toBeGreaterThan(1);
-    expect(sink.position.y).toBeGreaterThan(Math.max(...producers.map((node) => node.position.y)));
+    // the consumer sits on the row below
+    expect(sink.position.y).toBeGreaterThan(producers[0].position.y);
+    // the wide row may overflow the window; fit (zoom floor 0.05) is what
+    // brings it into view
+    expect(Math.max(...xs)).toBeGreaterThan(width - 200);
   });
 
   it('keeps orphan values clear of nodes across vertical reflows', () => {

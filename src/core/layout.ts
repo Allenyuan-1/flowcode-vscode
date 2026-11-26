@@ -218,61 +218,40 @@ function flowOrder(graph: FlowGraph): MethodNode[] {
   return result;
 }
 
-type PlacedRow = { nodes: MethodNode[]; continuation: boolean };
-
 const SIDE_MARGIN = 36;
-const WRAP_GAP = 26;
 
 /**
- * A row of parallel methods can be wider than the window. Keeping it on one
- * line pushes the outer blocks past the canvas edge, so wrap the row into
- * chunks that fit the available width.
+ * Vertical layout: one layer = one row. Methods of the same layer always sit
+ * side by side (the upstream/downstream model puts them there), so the layer
+ * structure stays visible — a wide row simply overflows horizontally and the
+ * canvas fit zooms out to show it (floor 0.05), instead of folding the row
+ * into a single chain that hides the layering.
  */
-function wrapRow(row: MethodNode[], maxWidth: number): MethodNode[][] {
-  if (!maxWidth) return [row];
-  const room = Math.max(NODE_WIDTH, maxWidth - SIDE_MARGIN * 2);
-  const perRow = Math.max(1, Math.floor((room + ROW_GAP) / (NODE_WIDTH + ROW_GAP)));
-  if (row.length <= perRow) return [row];
-  const chunks: MethodNode[][] = [];
-  for (let i = 0; i < row.length; i += perRow) chunks.push(row.slice(i, i + perRow));
-  return chunks;
-}
-
 function placeVertical(graph: FlowGraph, groups: MethodNode[][], options: LayoutOptions): void {
   const targetW = options.width ?? 0;
   const targetH = options.height ?? 0;
-  const rows: PlacedRow[] = [];
-  for (const group of groups) {
-    if (!group.length) continue;
-    wrapRow(group, targetW).forEach((chunk, index) => {
-      rows.push({ nodes: chunk, continuation: index > 0 });
-    });
-  }
-  const rowHeights = rows.map((row) => Math.max(...row.nodes.map((node) => nodeHeight(node))));
+  const rows = groups.filter((group) => group.length > 0);
+  const rowHeights = rows.map((row) => Math.max(...row.map((node) => nodeHeight(node))));
   const sum = rowHeights.reduce((total, height) => total + height, 0);
-  const wrapGaps = rows.reduce(
-    (total, row, index) => (index > 0 && row.continuation ? total + WRAP_GAP : total),
-    0,
-  );
-  const boundaries = rows.filter((row, index) => index > 0 && !row.continuation).length;
+  const boundaries = Math.max(0, rows.length - 1);
   let gap = options.layerGap ?? V_GAP_MIN;
   if (!options.layerGap && targetH && boundaries > 0) {
-    gap = clamp((targetH - 140 - sum - wrapGaps) / boundaries, V_GAP_MIN, V_GAP_MAX);
+    gap = clamp((targetH - 140 - sum) / boundaries, V_GAP_MIN, V_GAP_MAX);
   }
-  const total = sum + wrapGaps + gap * boundaries;
+  const total = sum + gap * boundaries;
   let y = targetH ? Math.max(40, (targetH - total) / 2) : 60;
   rows.forEach((row, rowIndex) => {
-    const rowWidth = row.nodes.length * NODE_WIDTH + Math.max(0, row.nodes.length - 1) * ROW_GAP;
+    const rowWidth = row.length * NODE_WIDTH + Math.max(0, row.length - 1) * ROW_GAP;
     let x = targetW ? Math.max(SIDE_MARGIN, (targetW - rowWidth) / 2) : 60;
     const rowHeight = rowHeights[rowIndex];
-    for (const node of row.nodes) {
+    for (const node of row) {
       node.position = {
         x,
         y: y + (rowHeight - nodeHeight(node)) / 2,
       };
       x += NODE_WIDTH + ROW_GAP;
     }
-    y += rowHeight + (rows[rowIndex + 1]?.continuation ? WRAP_GAP : gap);
+    y += rowHeight + gap;
   });
 }
 
