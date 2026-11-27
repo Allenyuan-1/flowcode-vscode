@@ -156,8 +156,12 @@ export interface BlockRegion {
   condition?: string;
   startLine: number;
   endLine: number;
-  /** Number of data-flow nodes in this block. */
+  /** Method nodes plus value nodes living in this block. */
   size: number;
+  /** Method nodes only (calls / operators). */
+  nodeCount: number;
+  /** Input, literal, global and output values only. */
+  valueCount: number;
   /** Content fingerprint, used as the lookup key for cached names. */
   hash?: string;
   nodes: string[];

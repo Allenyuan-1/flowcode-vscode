@@ -424,6 +424,31 @@ describe('block regions', () => {
     expect(regions[1].kind).toBe('linear');
   });
 
+  it('counts plain values and attributes returns to their branch', () => {
+    const source = [
+      'def pick(flag):',
+      '    if flag:',
+      '        return 1',
+      '    return 2',
+    ].join('\n');
+    const parsed = parse(source, 'pick');
+    const regions = parsed.graph.regions ?? [];
+    // A branch that only returns a literal has no method nodes at all; the
+    // block must still report content, or it renders as a zero-size card.
+    const caseBlock = regions.find((region) => region.kind === 'case')!;
+    expect(caseBlock.nodeCount).toBe(0);
+    expect(caseBlock.valueCount).toBeGreaterThan(0);
+    expect(caseBlock.size).toBeGreaterThan(0);
+
+    const outputs = parsed.graph.values.filter((value) => value.kind === 'output');
+    expect(outputs).toHaveLength(2);
+    const owned = new Set(regions.flatMap((region) => region.values));
+    for (const output of outputs) {
+      expect(output.sourceRange?.start.line).toBeGreaterThan(0);
+      expect(owned.has(output.id)).toBe(true);
+    }
+  });
+
   it('survives hydrate and does not perturb code generation', () => {
     const parsed = parse(dispatch, 'dispatch');
     const before = generatePython(hydrateGraph(parsed.graph, parsed.methods));

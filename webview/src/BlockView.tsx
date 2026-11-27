@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BlockRegion, FlowGraph } from '../../src/core/types';
 
 /**
@@ -313,7 +313,7 @@ export function BlockView({ graph, onReveal }: Props) {
                         {text.length > 16 ? `${text.slice(0, 15)}…` : text}
                       </text>
                       <text x={10} y={30} fontSize={9} fill="var(--fc-dim)">
-                        {region.size} 段 · L{region.startLine}–{region.endLine}
+                        {region.size} 元素 · L{region.startLine}–{region.endLine}
                       </text>
                       <title>
                         {`${raw}\n${region.condition ?? ''}\n进入: ${region.inputs.join(', ') || '—'}\n输出: ${region.outputs.join(', ') || '—'}`}
@@ -329,7 +329,7 @@ export function BlockView({ graph, onReveal }: Props) {
             <div className="blockview-detail">
               <div className="blockview-detail-head">
                 <b>{current.name || current.label || current.id}</b>
-                <span>{current.size} 段 · L{current.startLine}–{current.endLine}</span>
+                <span>{current.size} 元素 · L{current.startLine}–{current.endLine}</span>
                 {current.outputs.length > 0 && <span>→ {current.outputs.slice(0, 4).join(', ')}</span>}
               </div>
               {current.nodes.length === 0 && <p className="blockview-node">（该块没有可下钻的节点）</p>}
@@ -362,3 +362,4 @@ export function BlockView({ graph, onReveal }: Props) {
     </>
   );
 }
+

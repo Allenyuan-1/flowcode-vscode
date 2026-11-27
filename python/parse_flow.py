@@ -662,11 +662,12 @@ class Builder:
             if isinstance(node.value, ast.Tuple):
                 srcs = [self.one(e) for e in node.value.elts]
                 for i, src in enumerate(srcs):
-                    self.add_output(src, f"result{i + 1}" if len(srcs) > 1 else "result")
+                    self.add_output(src, f"result{i + 1}" if len(srcs) > 1 else "result",
+                                    node.lineno)
             else:
                 src = self.one(node.value)
                 base = src.name if safe_ident(src.name) and src.name not in ("result",) else "result"
-                self.add_output(src, base)
+                self.add_output(src, base, node.lineno)
             return
         if isinstance(node, ast.If):
             self.one(node.test)
@@ -727,7 +728,7 @@ class Builder:
             return
         self.warn("unsupported", f"{type(node).__name__} 语句暂不支持可视化", getattr(node, "lineno", None))
 
-    def add_output(self, src: Source, base: str) -> None:
+    def add_output(self, src: Source, base: str, line: int | None = None) -> None:
         name = base if safe_ident(base) else "result"
         if name in self._output_names:
             i = 2
@@ -736,10 +737,18 @@ class Builder:
             name = f"{name}_{i}"
         self._output_names.add(name)
         vid = self.vid()
-        self.values.append({
+        node = {
             "id": vid, "key": vid, "kind": "output", "name": name,
             "type": src.type, "position": {"x": 0, "y": 0},
-        })
+        }
+        # Keep the `return` line so the block view can attribute outputs to
+        # the branch they come from (and jump back to it).
+        if line:
+            node["sourceRange"] = {
+                "start": {"line": line, "character": 0},
+                "end": {"line": line, "character": 0},
+            }
+        self.values.append(node)
         self.edges.append({
             "id": self.eid(),
             "from": src.ref(),
@@ -1233,7 +1242,11 @@ def build_regions(body: list[ast.stmt], graph: dict, lines: list[str]) -> list[d
     for r in merged:
         r["inputs"] = sorted(pins[r["id"]])
         r["outputs"] = sorted(pouts[r["id"]])
-        r["size"] = len(r["nodes"])
+        # Count values too: a branch like `else: out = 0` produces a literal and
+        # an output but no method nodes, and reporting "0" made it look empty.
+        r["nodeCount"] = len(r["nodes"])
+        r["valueCount"] = len(r["values"])
+        r["size"] = r["nodeCount"] + r["valueCount"]
         r["edgesOut"] = sorted({b for a, b in pairs if a == r["id"]})
         # 块内容指纹：给"离线命名缓存"当 key
         chunk = "\n".join(lines[r["startLine"] - 1:r["endLine"]])
