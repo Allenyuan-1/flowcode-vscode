@@ -108,6 +108,11 @@ export function MethodNodeView({
         </span>
         <div className="node-heading">
           <div className="node-title-row">
+            {isBlock && node.stage !== undefined && (
+              <span className="node-stage" title={`执行阶段 ${node.stage}`}>
+                {node.stage <= 20 ? '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'[node.stage - 1] : `#${node.stage}`}
+              </span>
+            )}
             <span className="node-name">{node.name}</span>
             <span className={`node-origin ${node.origin}`}>
               {isBlock ? node.category : kindLabel(methodLike)}

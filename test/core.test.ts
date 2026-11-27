@@ -9,6 +9,7 @@ import {
 } from '../src/core/graph';
 import { layoutGraph } from '../src/core/layout';
 import { appendModule, collapseGraph, pruneSegments, replaceBlockMembers } from '../src/core/merge';
+import { describeSegment } from '../src/core/describe';
 import type { FlowGraph, MethodSpec, ParseResult } from '../src/core/types';
 
 const root = process.cwd();
@@ -719,6 +720,40 @@ describe('merged blocks', () => {
       expect(allIds.has(edge.from.node)).toBe(true);
       expect(allIds.has(edge.to.node)).toBe(true);
     }
+  });
+
+  it('derives semantic descriptions from the code itself', () => {
+    const parsed = parse(source, 'load');
+    const segments = parsed.graph.segments ?? [];
+    const read = segments.find((segment) => segment.kind === 'read')!;
+    const readDesc = describeSegment(parsed.graph, read);
+    expect(readDesc.brief).toContain('文件读取');
+    expect(readDesc.full).toContain('将 ');
+    expect(readDesc.full).toContain('适用于');
+    expect(readDesc.full).toContain('不可用');
+    const index = segments.find((segment) => segment.kind === 'index')!;
+    const indexDesc = describeSegment(parsed.graph, index);
+    expect(indexDesc.brief).toContain('索引整理');
+    expect(indexDesc.full).toContain('KeyError');
+    const morph = segments.find((segment) => segment.kind === 'morph')!;
+    const morphDesc = describeSegment(parsed.graph, morph);
+    expect(morphDesc.brief).toContain('类型');
+    expect(morphDesc.full).toContain('ValueError');
+  });
+
+  it('labels block edges with variable names and numbers execution stages', () => {
+    const parsed = parse(source, 'load');
+    const collapsed = collapseGraph(parsed.graph);
+    const labeled = collapsed.edges.filter((edge) => Boolean(edge.label));
+    expect(labeled.length).toBeGreaterThan(0);
+    expect(labeled.some((edge) => edge.label === 'df')).toBe(true);
+    const stages = collapsed.nodes.map((node) => node.stage).filter((stage): stage is number => stage !== undefined);
+    expect(stages.length).toBe(collapsed.nodes.length);
+    // the load chain runs in order: read (1) -> index (2) -> morph (3)
+    const byName = new Map(collapsed.nodes.map((node) => [node.name, node.stage]));
+    expect(byName.get('读取并初始化')).toBe(1);
+    expect(byName.get('索引整理')).toBe(2);
+    expect((byName.get('格式转换：df → float') ?? 0)).toBeGreaterThanOrEqual(3);
   });
 
   it('appends an AI-generated module as a new segment', () => {

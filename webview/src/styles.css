@@ -4182,3 +4182,19 @@ body.vscode-light .error-banner.is-syntax {
 .blockview-node-effect { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fc-dim); }
 
 .blockview-foot { padding: 4px 12px; border-top: 1px solid var(--fc-border); font-size: 8.5px; color: var(--fc-dim); }
+
+.node-stage {
+  flex: none;
+  font-size: 10px;
+  color: var(--fc-green, #3ddc97);
+  font-family: inherit;
+  margin-right: 2px;
+}
+.edge-label {
+  font-size: 9px;
+  font-family: var(--fc-mono, Consolas, monospace);
+  paint-order: stroke;
+  stroke: var(--fc-canvas, #0b0e14);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}

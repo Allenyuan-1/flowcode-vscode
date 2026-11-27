@@ -51,11 +51,10 @@ export default function App() {
 
   const allMethods = useMemo(() => [...state.userMethods, ...BUILTIN_METHODS], [state.userMethods]);
   const mergedView = Boolean(state.merged && canCollapse(state.graph));
-  const canvasGraph = useMemo(() => {
-    if (!mergedView || !state.graph) return state.graph;
-    const notes = new Map(Object.entries(state.segmentNotes));
-    return collapseGraph(state.graph, notes);
-  }, [mergedView, state.graph, state.segmentNotes]);
+  const canvasGraph = useMemo(
+    () => (mergedView && state.graph ? collapseGraph(state.graph) : state.graph),
+    [mergedView, state.graph],
+  );
   const fileGraph = useMemo(
     () => (state.fileGraph ? layoutFileGraph(structuredClone(state.fileGraph)) : null),
     [state.fileGraph],
@@ -132,13 +131,6 @@ export default function App() {
       case 'fileGraph':
         dispatch({ type: 'loadFileGraph', graph: message.graph, root: message.root });
         break;
-      case 'blocksDescribed': {
-        const notes: Record<string, import('../../src/core/types').SegmentNote> = {};
-        for (const note of message.notes ?? []) notes[note.id] = { brief: note.brief, full: note.full };
-        dispatch({ type: 'annotateSegments', notes });
-        if (message.error) dispatch({ type: 'toast', kind: 'warn', message: message.error });
-        break;
-      }
       case 'studioResult': {
         // module generation: reuse the studio pipeline, then re-parse and append
         if (!modGenRef.current) break;
@@ -396,23 +388,6 @@ export default function App() {
         removeEdge(graph, id);
       },
     });
-  }, []);
-
-  const describeBlocks = useCallback(() => {
-    const graph = stateRef.current.graph;
-    const segments = graph?.segments ?? [];
-    if (!graph || !segments.length) return;
-    const blocks = segments.map((segment) => {
-      let code = '';
-      try {
-        code = generatePython(blockSubGraph(graph, segment)).code ?? '';
-      } catch {
-        code = '';
-      }
-      return { id: segment.id, label: segment.label, code };
-    });
-    post({ type: 'describeBlocks', blocks });
-    dispatch({ type: 'toast', kind: 'info', message: 'AI 解读中…完成后块卡片会显示摘要（转化/算法/适用/限制见块面板）。' });
   }, []);
 
   const deleteBlockMembers = useCallback((segmentId: string) => {
@@ -838,14 +813,7 @@ export default function App() {
               )}
               {merged && state.selected?.kind !== 'node' && (
                 <div className="canvas-suggest">
-                  <span>点块看成员与源码 · AI 解读给出原理</span>
-                  <button
-                    type="button"
-                    onClick={describeBlocks}
-                    title="AI 解读所有块：将 xx 通过 xx 算法转化为 xx，适用于 xx，xx 时不可用会出现 xx 问题"
-                  >
-                    ✦ AI 解读
-                  </button>
+                  <span>① ② ③ 是执行阶段 · 块卡片带语义 · 边上标着流转的变量</span>
                   <button
                     type="button"
                     onClick={() => { setModGenError(''); setModGenReq(''); setModGenOpen(true); }}
@@ -858,7 +826,6 @@ export default function App() {
               {merged && state.selected?.kind === 'node' && graph && (
                 <MergedBlockPanel
                   graph={graph}
-                  note={state.selected.id.startsWith('blk:') ? state.segmentNotes[state.selected.id.slice(4)] : undefined}
                   selectedId={state.selected.id}
                   onLocate={(nodeId, line) => {
                     dispatch({ type: 'merged', merged: false });

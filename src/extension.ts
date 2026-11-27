@@ -704,67 +704,6 @@ export class FlowCodeManager implements vscode.Disposable {
     }
   }
 
-  /**
-   * AI 解读：给每个块生成语义注释——"将 xxx 通过 xxx 算法转化为 xxx，
-   * 适用于 xxx，xxx 时不可用会出现 xxx 问题"。无 Key 时本地回退（brief 用块名）。
-   */
-  private async describeBlocks(blocks: { id: string; label: string; code: string }[]): Promise<void> {
-    const local = blocks.map((block) => ({
-      id: block.id,
-      brief: block.label,
-      full: `${block.label}：该块的功能解读需要配置 AI（flowcode.aiBaseUrl / flowcode.aiModel 与 API Key）。`,
-    }));
-    const stored = await this.context.secrets.get(this.studioKeySecret) || '';
-    if (!stored.trim() || !blocks.length) {
-      this.post({ type: 'blocksDescribed', notes: local, error: stored ? '' : '未配置 API Key，块名暂代解读。' });
-      return;
-    }
-    try {
-      const config = vscode.workspace.getConfiguration('flowcode');
-      const baseUrl = (config.get<string>('aiBaseUrl') || 'https://api.openai.com/v1').replace(/\/+$/, '');
-      const model = config.get<string>('aiModel') || 'gpt-4o-mini';
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 90_000);
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${stored}` },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content: '你是资深软件工程师，负责给程序流程图的每个功能块写语义注释，让其他工程师一眼看懂工程运行过程、逻辑与原理。只输出一个 JSON 对象：{"notes":[{"id":"块id","brief":"≤24字的摘要，说明这个块做了什么","full":"按模板写：将__通过__算法转化为__，适用于__，__时不可用会出现__问题"}]}。brief 不能只是"计算/处理"这类空话；full 必须完整覆盖：输入输出、算法/手段、适用场景、限制与失败模式。不要输出 Markdown。',
-            },
-            {
-              role: 'user',
-              content: `以下是一个 Python 工程的若干功能块（id、当前块名、代码）。请逐一解读：\n${blocks.map((block) => `--- 块 ${block.id}（${block.label}）---\n${block.code.slice(0, 3000)}`).join('\n')}`,
-            },
-          ],
-        }),
-      });
-      clearTimeout(timer);
-      if (!response.ok) throw new Error(`AI API 返回 ${response.status}`);
-      const data = await response.json() as { choices?: { message?: { content?: string } }[] };
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new Error('AI API 没有返回内容');
-      const jsonText = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      const parsed = JSON.parse(jsonText) as { notes?: { id: string; brief: string; full: string }[] };
-      const byId = new Map((parsed.notes ?? []).map((note) => [note.id, note]));
-      const notes = blocks.map((block) => {
-        const note = byId.get(block.id);
-        return note && note.brief && note.full
-          ? { id: block.id, brief: note.brief, full: note.full }
-          : { id: block.id, brief: block.label, full: `${block.label}（AI 未给出解读）` };
-      });
-      this.post({ type: 'blocksDescribed', notes });
-    } catch (error) {
-      this.post({ type: 'blocksDescribed', notes: local, error: `AI 解读失败，已回退块名：${(error as Error).message}` });
-    }
-  }
-
   private async setupAiFromClipboard(): Promise<void> {
     const key = (await vscode.env.clipboard.readText()).trim();
     if (!key) {
@@ -861,13 +800,6 @@ export class FlowCodeManager implements vscode.Disposable {
         }
         break;
       }
-      case 'describeBlocks':
-        await this.describeBlocks(
-          Array.isArray(message.blocks)
-            ? (message.blocks as { id: string; label: string; code: string }[])
-            : [],
-        );
-        break;
       case 'openSettings':
         await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:flowcode');
         break;

@@ -31,8 +31,7 @@ export type HostToWebview =
   | { type: 'studioKeyStatus'; hasKey: boolean }
   | { type: 'studioResult'; draft: StudioDraft; source: 'ai' | 'local'; error?: string }
   | { type: 'snippetParsed'; graph?: FlowGraph; error?: string }
-  | { type: 'sourceLines'; text: string; error?: string }
-  | { type: 'blocksDescribed'; notes: { id: string; brief: string; full: string }[]; error?: string };
+  | { type: 'sourceLines'; text: string; error?: string };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -51,5 +50,4 @@ export type WebviewToHost =
   | { type: 'studioSaveKey'; key: string }
   | { type: 'studioGenerate'; requirements: string; code?: string; apiKey?: string }
   | { type: 'parseSnippet'; code: string }
-  | { type: 'sourceLines'; start: number; end: number }
-  | { type: 'describeBlocks'; blocks: { id: string; label: string; code: string }[] };
+  | { type: 'sourceLines'; start: number; end: number };

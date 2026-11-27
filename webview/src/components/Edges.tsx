@@ -112,6 +112,17 @@ export function Edges({
               style={{ stroke: `var(${typeVar(type)})` }}
               markerEnd={`url(#fc-arrow-${type})`}
             />
+            {edge.label && (
+              <text
+                className="edge-label"
+                x={mid.x}
+                y={mid.y - 4}
+                textAnchor="middle"
+                style={{ stroke: 'none', fill: 'var(--fc-text)' }}
+              >
+                {edge.label}
+              </text>
+            )}
             {selected && (
               <g
                 className="edge-delete"

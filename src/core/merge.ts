@@ -1,5 +1,6 @@
 import { nodeHeight, NODE_WIDTH, removeNodes, uid } from './graph';
-import type { FlowEdge, FlowGraph, MethodNode, Port, PortType, Segment, SegmentNote } from './types';
+import type { FlowEdge, FlowGraph, MethodNode, Port, PortType, Segment } from './types';
+import { describeSegment } from './describe';
 
 const ROW_GAP = 44;
 const LAYER_GAP = 96;
@@ -13,7 +14,7 @@ const MAX_ROW_WIDTH = 1320;
  * the normal canvas, so layout, zoom and fit all keep working — and code
  * generation never sees it, because the original graph is left untouched.
  */
-export function collapseGraph(graph: FlowGraph, notes?: Map<string, SegmentNote>): FlowGraph {
+export function collapseGraph(graph: FlowGraph): FlowGraph {
   const segments = graph.segments ?? [];
   if (!segments.length) return graph;
 
@@ -24,6 +25,7 @@ export function collapseGraph(graph: FlowGraph, notes?: Map<string, SegmentNote>
 
   const nodes: MethodNode[] = segments.map((segment, index) => {
     const id = blockId(segment.id);
+    const description = describeSegment(graph, segment);
     return {
       id,
       key: id,
@@ -31,7 +33,8 @@ export function collapseGraph(graph: FlowGraph, notes?: Map<string, SegmentNote>
       name: segment.label,
       qualifiedName: segment.kind,
       kind: 'method',
-      effect: notes?.get(segment.id)?.brief ?? segment.names.join(' → '),
+      // 块卡片直接携带从代码推导的语义：输出 ← 输入 · 算法
+      effect: description.brief,
       category: blockKindLabel(segment.kind),
       origin: 'builtin',
       inputs: segment.inputs.map((port, i) => toPort(`${id}:in:${i}`, port.name, port.type)),
@@ -46,23 +49,65 @@ export function collapseGraph(graph: FlowGraph, notes?: Map<string, SegmentNote>
   });
 
   const byId = new Map(nodes.map((node) => [node.id, node]));
+  // 块间边按「变量名」建边：同名端口之间各一条，边带变量名标签，
+  // 数据从哪个变量流到哪个变量一目了然
   const edges: FlowEdge[] = [];
   const seen = new Set<string>();
+  const memberById = new Map(graph.nodes.map((node) => [node.id, node]));
   for (const edge of graph.edges) {
     const fromSegment = owner.get(edge.from.node);
     const toSegment = owner.get(edge.to.node);
     if (!fromSegment || !toSegment || fromSegment === toSegment) continue;
-    const key = `${fromSegment}->${toSegment}`;
+    const source = memberById.get(edge.from.node);
+    const target = memberById.get(edge.to.node);
+    const name = source?.outputs.find((port) => port.id === edge.from.port)?.name
+      ?? target?.inputs.find((port) => port.id === edge.to.port)?.name;
+    if (!name) continue;
+    const key = `${fromSegment}->${toSegment}->${name}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const from = byId.get(blockId(fromSegment));
     const to = byId.get(blockId(toSegment));
-    if (!from || !to || !from.outputs.length || !to.inputs.length) continue;
+    const fromPort = from?.outputs.find((port) => port.name === name);
+    const toPort = to?.inputs.find((port) => port.name === name);
+    if (!fromPort || !toPort) continue;
     edges.push({
       id: `e:${key}`,
-      from: { node: from.id, port: from.outputs[0].id },
-      to: { node: to.id, port: to.inputs[0].id },
+      from: { node: from!.id, port: fromPort.id },
+      to: { node: to!.id, port: toPort.id },
+      label: name,
     });
+  }
+
+  // 执行阶段编号：沿块间依赖做拓扑分层，同层同阶段（1 起）
+  const stageOf = new Map<string, number>();
+  {
+    const indegree = new Map(nodes.map((node) => [node.id, 0]));
+    for (const edge of edges) indegree.set(edge.to.node, (indegree.get(edge.to.node) ?? 0) + 1);
+    const children = new Map<string, string[]>();
+    for (const edge of edges) {
+      if (!children.has(edge.from.node)) children.set(edge.from.node, []);
+      children.get(edge.from.node)!.push(edge.to.node);
+    }
+    const ready = nodes.filter((node) => (indegree.get(node.id) ?? 0) === 0);
+    let stage = 1;
+    while (ready.length) {
+      const next: string[] = [];
+      for (const node of ready) {
+        stageOf.set(node.id, stage);
+        for (const child of children.get(node.id) ?? []) {
+          indegree.set(child, (indegree.get(child) ?? 1) - 1);
+          if ((indegree.get(child) ?? 0) === 0) next.push(child);
+        }
+      }
+      ready.length = 0;
+      ready.push(...next.map((id) => byId.get(id)!).filter(Boolean));
+      stage += 1;
+    }
+    for (const node of nodes) {
+      if (!stageOf.has(node.id)) stageOf.set(node.id, 1);
+      node.stage = stageOf.get(node.id);
+    }
   }
 
   const result: FlowGraph = {

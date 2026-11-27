@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FlowGraph, SegmentNote } from '../../../src/core/types';
+import type { FlowGraph } from '../../../src/core/types';
 import { blockSubGraph, segmentMembers } from '../../../src/core/merge';
+import { describeSegment } from '../../../src/core/describe';
 import { generatePython } from '../../../src/core/generate';
 import { isVsCode, post, subscribe } from '../host';
 import { ExternalLink, Sparkles, Trash } from '../icons';
@@ -9,8 +10,6 @@ import type { HostToWebview } from '../messages';
 interface Props {
   /** The ORIGINAL (structure) graph: segments and their member nodes live here. */
   graph: FlowGraph;
-  /** AI 解读的语义注释（可选）。 */
-  note?: SegmentNote;
   /** Selected block node id (`blk:<segmentId>`). */
   selectedId: string;
   /** Jump back to the structure view and reveal the member. */
@@ -28,7 +27,7 @@ interface Props {
  * AI 调整——把块的代码和你的要求发给 AI，返回的新代码解析后替换块内
  * 成员（边界按端口名重新接线），再「应用到代码」写回源码。
  */
-export function MergedBlockPanel({ graph, note, selectedId, onLocate, onDeleteMember, onDeleteBlock, onSplice }: Props) {
+export function MergedBlockPanel({ graph, selectedId, onLocate, onDeleteMember, onDeleteBlock, onSplice }: Props) {
   const segment = useMemo(() => {
     const segmentId = selectedId.startsWith('blk:') ? selectedId.slice(4) : '';
     return (graph.segments ?? []).find((item) => item.id === segmentId) ?? null;
@@ -88,6 +87,8 @@ export function MergedBlockPanel({ graph, note, selectedId, onLocate, onDeleteMe
 
   if (!segment) return null;
   const members = segmentMembers(graph, segment);
+  // 从代码本身推导的语义描述（无需 AI）：将 xx 通过 xx 算法转化为 xx，适用于 xx；限制
+  const note = useMemo(() => describeSegment(graph, segment), [graph, segment]);
   const blockCode = useMemo(() => {
     try {
       return generatePython(blockSubGraph(graph, segment)).code ?? '';
@@ -144,7 +145,7 @@ export function MergedBlockPanel({ graph, note, selectedId, onLocate, onDeleteMe
         </header>
         {note && (
           <div className="merged-panel-note" title={note.full}>
-            <b>解读</b>
+            <b>语义</b>
             <span>{note.full}</span>
           </div>
         )}

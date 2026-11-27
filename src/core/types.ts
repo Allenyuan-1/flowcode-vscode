@@ -81,6 +81,8 @@ export interface MethodNode {
   order?: number;
   note?: string;
   cellIndex?: number;
+  /** 合并视图块节点的执行阶段编号（1 起）。 */
+  stage?: number;
 }
 
 export type ValueKind = 'input' | 'literal' | 'global' | 'output';
@@ -112,6 +114,8 @@ export interface FlowEdge {
   id: string;
   from: Endpoint;
   to: Endpoint;
+  /** 边上的变量名（合并视图的块间边会标注流转的数据）。 */
+  label?: string;
 }
 
 export type WarningCode =
