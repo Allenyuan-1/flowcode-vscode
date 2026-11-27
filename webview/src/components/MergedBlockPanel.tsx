@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FlowGraph } from '../../../src/core/types';
+import type { FlowGraph, SegmentNote } from '../../../src/core/types';
 import { blockSubGraph, segmentMembers } from '../../../src/core/merge';
 import { generatePython } from '../../../src/core/generate';
 import { isVsCode, post, subscribe } from '../host';
@@ -9,6 +9,8 @@ import type { HostToWebview } from '../messages';
 interface Props {
   /** The ORIGINAL (structure) graph: segments and their member nodes live here. */
   graph: FlowGraph;
+  /** AI 解读的语义注释（可选）。 */
+  note?: SegmentNote;
   /** Selected block node id (`blk:<segmentId>`). */
   selectedId: string;
   /** Jump back to the structure view and reveal the member. */
@@ -26,7 +28,7 @@ interface Props {
  * AI 调整——把块的代码和你的要求发给 AI，返回的新代码解析后替换块内
  * 成员（边界按端口名重新接线），再「应用到代码」写回源码。
  */
-export function MergedBlockPanel({ graph, selectedId, onLocate, onDeleteMember, onDeleteBlock, onSplice }: Props) {
+export function MergedBlockPanel({ graph, note, selectedId, onLocate, onDeleteMember, onDeleteBlock, onSplice }: Props) {
   const segment = useMemo(() => {
     const segmentId = selectedId.startsWith('blk:') ? selectedId.slice(4) : '';
     return (graph.segments ?? []).find((item) => item.id === segmentId) ?? null;
@@ -37,6 +39,9 @@ export function MergedBlockPanel({ graph, selectedId, onLocate, onDeleteMember, 
   const [adjusting, setAdjusting] = useState(false);
   const [adjustError, setAdjustError] = useState('');
   const [adjustPreview, setAdjustPreview] = useState('');
+  const [tab, setTab] = useState<'members' | 'code'>('members');
+  const [source, setSource] = useState('');
+  const [sourceError, setSourceError] = useState('');
   // stable ref so the host-message subscription always sees the current
   // dialog state (a plain object recreated per render would go stale in
   // the effect closure)
@@ -47,6 +52,11 @@ export function MergedBlockPanel({ graph, selectedId, onLocate, onDeleteMember, 
   // AI adjustment round trip: studioGenerate -> studioResult -> parseSnippet -> splice
   useEffect(() => {
     const unsubscribe = subscribe((message: HostToWebview) => {
+      if (message.type === 'sourceLines') {
+        setSource(message.text);
+        if (message.error) setSourceError(message.error);
+        return;
+      }
       if (message.type === 'studioResult') {
         if (!adjustRef.current.open) return;
         const code = message.draft?.code;
@@ -86,6 +96,16 @@ export function MergedBlockPanel({ graph, selectedId, onLocate, onDeleteMember, 
     }
   }, [graph, segment]);
 
+  // fall the block back to the real source lines of the current document
+  useEffect(() => {
+    setSource('');
+    setSourceError('');
+    setTab('members');
+    if (segment.startLine > 0 && isVsCode) {
+      post({ type: 'sourceLines', start: segment.startLine, end: segment.endLine });
+    }
+  }, [segment.id, segment.startLine, segment.endLine]);
+
   const runAdjust = () => {
     setAdjustError('');
     setAdjustPreview('');
@@ -122,34 +142,54 @@ export function MergedBlockPanel({ graph, selectedId, onLocate, onDeleteMember, 
             </button>
           </div>
         </header>
-        <div className="merged-panel-list">
-          {members.map((node) => {
-            const line = node.sourceRange?.start.line;
-            return (
-              <div className="merged-panel-row" key={node.id}>
-                <button
-                  type="button"
-                  className="merged-panel-locate"
-                  title={line !== undefined ? `回到结构视图并定位第 ${line} 行` : '回到结构视图并选中'}
-                  onClick={() => onLocate(node.id, line)}
-                >
-                  <span className="merged-panel-line">{line ?? '—'}</span>
-                  <span className="merged-panel-name">{node.name}</span>
-                  <span className="merged-panel-effect">{node.effect}</span>
-                </button>
-                <button
-                  type="button"
-                  className="merged-panel-del"
-                  title={`从块中删除 ${node.name}`}
-                  onClick={() => onDeleteMember(node.id)}
-                >
-                  <Trash size={11} />
-                </button>
-              </div>
-            );
-          })}
+        {note && (
+          <div className="merged-panel-note" title={note.full}>
+            <b>解读</b>
+            <span>{note.full}</span>
+          </div>
+        )}
+        <div className="merged-panel-tabs">
+          <button type="button" className={tab === 'members' ? 'is-on' : ''} onClick={() => setTab('members')}>
+            成员（{members.length}）
+          </button>
+          <button type="button" className={tab === 'code' ? 'is-on' : ''} onClick={() => setTab('code')}>
+            代码
+          </button>
         </div>
-        <footer className="merged-panel-foot">点成员 → 回结构视图选中 · 删除成员/整块即时生效 · AI 调整可重写块内实现</footer>
+        {tab === 'members' ? (
+          <div className="merged-panel-list">
+            {members.map((node) => {
+              const line = node.sourceRange?.start.line;
+              return (
+                <div className="merged-panel-row" key={node.id}>
+                  <button
+                    type="button"
+                    className="merged-panel-locate"
+                    title={line !== undefined ? `回到结构视图并定位第 ${line} 行` : '回到结构视图并选中'}
+                    onClick={() => onLocate(node.id, line)}
+                  >
+                    <span className="merged-panel-line">{line ?? '—'}</span>
+                    <span className="merged-panel-name">{node.name}</span>
+                    <span className="merged-panel-effect">{node.effect}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="merged-panel-del"
+                    title={`从块中删除 ${node.name}`}
+                    onClick={() => onDeleteMember(node.id)}
+                  >
+                    <Trash size={11} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <pre className="merged-panel-code">
+            {sourceError ? `无法读取源码：${sourceError}` : source || blockCode || '（该块没有可回落的代码）'}
+          </pre>
+        )}
+        <footer className="merged-panel-foot">点成员 → 回结构视图选中 · 代码页回落真实源码 · 删除与 AI 调整即时生效</footer>
       </aside>
 
       {adjustOpen && (

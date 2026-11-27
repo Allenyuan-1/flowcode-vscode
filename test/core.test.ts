@@ -8,7 +8,7 @@ import {
   connect, connectionError, createMethodNode, createValueNode, findFreeSpot, graphBounds, nodeHeight, NODE_WIDTH, portPosition, removeNodes,
 } from '../src/core/graph';
 import { layoutGraph } from '../src/core/layout';
-import { collapseGraph, pruneSegments, replaceBlockMembers } from '../src/core/merge';
+import { appendModule, collapseGraph, pruneSegments, replaceBlockMembers } from '../src/core/merge';
 import type { FlowGraph, MethodSpec, ParseResult } from '../src/core/types';
 
 const root = process.cwd();
@@ -714,6 +714,31 @@ describe('merged blocks', () => {
     expect(dfToSum).toBe(true);
     expect(mulToB).toBe(true);
     // every edge endpoint exists
+    const allIds = new Set([...graph.nodes.map((node) => node.id), ...graph.values.map((value) => value.id)]);
+    for (const edge of graph.edges) {
+      expect(allIds.has(edge.from.node)).toBe(true);
+      expect(allIds.has(edge.to.node)).toBe(true);
+    }
+  });
+
+  it('appends an AI-generated module as a new segment', () => {
+    const parsed = parse(source, 'load');
+    const graph = parsed.graph;
+    const moduleSource = [
+      'def feature(xs):',
+      '    s = sum(xs)',
+      '    return s / len(xs)',
+    ].join('\n');
+    const module = parse(moduleSource, 'feature').graph;
+    const beforeBlocks = (graph.segments ?? []).length;
+    const beforeNodes = graph.nodes.length;
+    const segmentId = appendModule(graph, module, '特征模块');
+    expect((graph.segments ?? []).length).toBe(beforeBlocks + 1);
+    expect(graph.nodes.length).toBe(beforeNodes + module.nodes.length);
+    const segment = graph.segments!.find((item) => item.id === segmentId)!;
+    expect(segment.label).toBe('特征模块');
+    expect(segment.members.length).toBe(module.nodes.length);
+    // all new nodes and edges reference existing ids
     const allIds = new Set([...graph.nodes.map((node) => node.id), ...graph.values.map((value) => value.id)]);
     for (const edge of graph.edges) {
       expect(allIds.has(edge.from.node)).toBe(true);

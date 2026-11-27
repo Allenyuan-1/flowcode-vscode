@@ -6,7 +6,7 @@ import {
 } from '../../src/core/graph';
 import { generatePython } from '../../src/core/generate';
 import { hydrateGraph } from '../../src/core/enrich';
-import { canCollapse, collapseGraph, pruneSegments, replaceBlockMembers } from '../../src/core/merge';
+import { appendModule, blockSubGraph, canCollapse, collapseGraph, pruneSegments, replaceBlockMembers } from '../../src/core/merge';
 import type { FlowGraph, MethodSpec, Point, PortType } from '../../src/core/types';
 import { isVsCode, post, subscribe } from './host';
 import { initialState, reducer } from './store';
@@ -25,7 +25,7 @@ import { MethodStudio, studioMethodSpec } from './components/MethodStudio';
 import type { StudioDraft } from '../../src/core/studio';
 import { BlockView } from './BlockView';
 import { MergedBlockPanel } from './components/MergedBlockPanel';
-import { Logo } from './icons';
+import { Logo, Sparkles } from './icons';
 import type { HostToWebview } from './messages';
 import { uniqueName } from './utils';
 
@@ -41,13 +41,21 @@ export default function App() {
   const [fileFitSignal, setFileFitSignal] = useState(0);
   const [paramEdit, setParamEdit] = useState<ParamEditTarget | null>(null);
   const [studioOpen, setStudioOpen] = useState(false);
+  const [modGenOpen, setModGenOpen] = useState(false);
+  const [modGenReq, setModGenReq] = useState('');
+  const [modGenBusy, setModGenBusy] = useState(false);
+  const [modGenError, setModGenError] = useState('');
+  const modGenRef = useRef(false);
+  modGenRef.current = modGenOpen;
+  const modGenLabelRef = useRef('AI 模块');
 
   const allMethods = useMemo(() => [...state.userMethods, ...BUILTIN_METHODS], [state.userMethods]);
   const mergedView = Boolean(state.merged && canCollapse(state.graph));
-  const canvasGraph = useMemo(
-    () => (mergedView && state.graph ? collapseGraph(state.graph) : state.graph),
-    [mergedView, state.graph],
-  );
+  const canvasGraph = useMemo(() => {
+    if (!mergedView || !state.graph) return state.graph;
+    const notes = new Map(Object.entries(state.segmentNotes));
+    return collapseGraph(state.graph, notes);
+  }, [mergedView, state.graph, state.segmentNotes]);
   const fileGraph = useMemo(
     () => (state.fileGraph ? layoutFileGraph(structuredClone(state.fileGraph)) : null),
     [state.fileGraph],
@@ -124,6 +132,48 @@ export default function App() {
       case 'fileGraph':
         dispatch({ type: 'loadFileGraph', graph: message.graph, root: message.root });
         break;
+      case 'blocksDescribed': {
+        const notes: Record<string, import('../../src/core/types').SegmentNote> = {};
+        for (const note of message.notes ?? []) notes[note.id] = { brief: note.brief, full: note.full };
+        dispatch({ type: 'annotateSegments', notes });
+        if (message.error) dispatch({ type: 'toast', kind: 'warn', message: message.error });
+        break;
+      }
+      case 'studioResult': {
+        // module generation: reuse the studio pipeline, then re-parse and append
+        if (!modGenRef.current) break;
+        if (message.draft?.code) {
+          modGenLabelRef.current = message.draft.effect || message.draft.name || 'AI 模块';
+          post({ type: 'parseSnippet', code: message.draft.code });
+        } else {
+          setModGenBusy(false);
+          setModGenError(message.error ?? 'AI 没有返回代码');
+        }
+        break;
+      }
+      case 'snippetParsed': {
+        if (!modGenRef.current) break;
+        if (!message.graph) {
+          setModGenBusy(false);
+          setModGenError(message.error ?? '解析失败');
+          break;
+        }
+        const label = modGenLabelRef.current;
+        setModGenBusy(false);
+        setModGenOpen(false);
+        setModGenError('');
+        dispatch({
+          type: 'mutate',
+          mutate: (draft) => {
+            appendModule(draft, message.graph!, label);
+          },
+        });
+        window.requestAnimationFrame(() => {
+          canvasApi.current?.reflow();
+          dispatch({ type: 'fit' });
+        });
+        break;
+      }
       default:
         break;
     }
@@ -346,6 +396,23 @@ export default function App() {
         removeEdge(graph, id);
       },
     });
+  }, []);
+
+  const describeBlocks = useCallback(() => {
+    const graph = stateRef.current.graph;
+    const segments = graph?.segments ?? [];
+    if (!graph || !segments.length) return;
+    const blocks = segments.map((segment) => {
+      let code = '';
+      try {
+        code = generatePython(blockSubGraph(graph, segment)).code ?? '';
+      } catch {
+        code = '';
+      }
+      return { id: segment.id, label: segment.label, code };
+    });
+    post({ type: 'describeBlocks', blocks });
+    dispatch({ type: 'toast', kind: 'info', message: 'AI 解读中…完成后块卡片会显示摘要（转化/算法/适用/限制见块面板）。' });
   }, []);
 
   const deleteBlockMembers = useCallback((segmentId: string) => {
@@ -771,12 +838,27 @@ export default function App() {
               )}
               {merged && state.selected?.kind !== 'node' && (
                 <div className="canvas-suggest">
-                  <span>点一个块查看成员，点成员回到结构视图</span>
+                  <span>点块看成员与源码 · AI 解读给出原理</span>
+                  <button
+                    type="button"
+                    onClick={describeBlocks}
+                    title="AI 解读所有块：将 xx 通过 xx 算法转化为 xx，适用于 xx，xx 时不可用会出现 xx 问题"
+                  >
+                    ✦ AI 解读
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setModGenError(''); setModGenReq(''); setModGenOpen(true); }}
+                    title="用 AI 生成一个功能模块并加入当前流程"
+                  >
+                    ✦ AI 生成模块
+                  </button>
                 </div>
               )}
               {merged && state.selected?.kind === 'node' && graph && (
                 <MergedBlockPanel
                   graph={graph}
+                  note={state.selected.id.startsWith('blk:') ? state.segmentNotes[state.selected.id.slice(4)] : undefined}
                   selectedId={state.selected.id}
                   onLocate={(nodeId, line) => {
                     dispatch({ type: 'merged', merged: false });
@@ -808,6 +890,44 @@ export default function App() {
                     });
                   }}
                 />
+              )}
+              {modGenOpen && (
+                <div className="merged-adjust-backdrop" onClick={() => !modGenBusy && setModGenOpen(false)}>
+                  <div className="merged-adjust" onClick={(event) => event.stopPropagation()}>
+                    <header className="merged-adjust-head">
+                      <b>✦ AI 生成功能模块</b>
+                      <button type="button" className="icon-btn" onClick={() => setModGenOpen(false)} title="关闭">×</button>
+                    </header>
+                    <label className="merged-adjust-label">
+                      模块要求——按「将 xx 通过 xx 算法转化为 xx，适用于 xx，xx 时不可用会出现 xx 问题」写清楚
+                    </label>
+                    <textarea
+                      className="merged-adjust-req"
+                      value={modGenReq}
+                      onChange={(event) => setModGenReq(event.target.value)}
+                      placeholder="例如：将负荷序列通过滑动窗口算法转化为特征矩阵，适用于短期预测；窗口大于序列长度时不可用，会出现空矩阵问题。"
+                      rows={3}
+                    />
+                    {modGenError && <div className="merged-adjust-error">{modGenError}</div>}
+                    <div className="merged-adjust-foot">
+                      <button type="button" className="btn ghost" onClick={() => setModGenOpen(false)} disabled={modGenBusy}>
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        className="btn primary"
+                        disabled={modGenBusy || !isVsCode}
+                        onClick={() => {
+                          setModGenError('');
+                          setModGenBusy(true);
+                          post({ type: 'studioGenerate', requirements: modGenReq || '生成一个数据处理功能模块' });
+                        }}
+                      >
+                        <Sparkles size={13} /> {modGenBusy ? '生成中…' : '生成并加入流程'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 

@@ -2,7 +2,7 @@
   "name": "flowcode-vscode",
   "displayName": "FlowCode — 可视化程序逻辑",
   "description": "用积木式流程图展示并编辑程序逻辑，支持 Python 代码与流程图双向转换。",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "flowcode",
   "license": "MIT",
   "engines": {

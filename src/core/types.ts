@@ -191,6 +191,17 @@ export interface Segment {
   outputs: PortSpec[];
 }
 
+/**
+ * AI 解读的块语义注释：不是"简单计算"，而是
+ * "将 xxx 通过 xxx 算法转化为 xxx，适用于 xxx，xxx 时不可用会出现 xxx 问题"。
+ */
+export interface SegmentNote {
+  /** 块卡片上的一行摘要（≤ 24 字）。 */
+  brief: string;
+  /** 完整描述：转化 / 算法 / 适用 / 限制。 */
+  full: string;
+}
+
 export interface FlowGraph {
   version: 1;
   id: string;

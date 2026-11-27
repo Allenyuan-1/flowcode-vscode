@@ -3,7 +3,7 @@ import { demoGraph, demoMethods } from '../../src/core/sample';
 import { enrichGraph } from '../../src/core/enrich';
 import { layoutGraph } from '../../src/core/layout';
 import type { FlowOrientation } from '../../src/core/layout';
-import type { FileGraph, FlowGraph, MethodSpec } from '../../src/core/types';
+import type { FileGraph, FlowGraph, MethodSpec, SegmentNote } from '../../src/core/types';
 import type { NotebookInfo } from './messages';
 
 export type RightTab = 'params' | 'code';
@@ -64,6 +64,8 @@ export interface AppState {
   orientationMode: 'auto' | 'manual';
   /** Show the graph folded into semantic merge blocks (view only). */
   merged: boolean;
+  /** AI 解读的块语义注释，按 segment id 索引（纯视图层，不写回源码）。 */
+  segmentNotes: Record<string, SegmentNote>;
   demo: boolean;
   applyOpen: boolean;
   helpOpen: boolean;
@@ -106,6 +108,7 @@ export function initialState(): AppState {
     orientation: 'vertical',
     orientationMode: 'manual',
     merged: false,
+    segmentNotes: {},
     demo: false,
     applyOpen: false,
     helpOpen: false,
@@ -160,6 +163,7 @@ export type Action =
   | { type: 'reflow'; width: number; height: number; orientation: FlowOrientation }
   | { type: 'orientation'; orientation: FlowOrientation; mode: 'auto' | 'manual' }
   | { type: 'merged'; merged: boolean }
+  | { type: 'annotateSegments'; notes: Record<string, SegmentNote> }
   | { type: 'applyOpen'; open: boolean }
   | { type: 'helpOpen'; open: boolean }
   | { type: 'menuOpen'; open: boolean }
@@ -204,6 +208,7 @@ export function reducer(state: AppState, action: Action): AppState {
         userMethods: action.methods,
         notebook: action.notebook,
         viewMode: 'flow',
+        segmentNotes: {},
         fileName: action.fileName,
         filePath: action.filePath,
         documentUri: action.documentUri,
@@ -360,6 +365,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, orientation: action.orientation, orientationMode: action.mode };
     case 'merged':
       return { ...state, merged: action.merged, fitSignal: state.fitSignal + 1 };
+    case 'annotateSegments':
+      // 纯视图层注释：不落图、不置脏，代码生成不受影响
+      return { ...state, segmentNotes: { ...state.segmentNotes, ...action.notes } };
     case 'applyOpen':
       return { ...state, applyOpen: action.open };
     case 'helpOpen':

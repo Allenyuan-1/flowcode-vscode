@@ -3976,6 +3976,51 @@ body.vscode-light .error-banner.is-syntax {
 .merged-panel-row svg { flex: none; color: var(--fc-dim); }
 .merged-panel-foot { padding: 6px 12px; border-top: 1px solid var(--fc-border); font-size: 8.5px; color: var(--fc-dim); }
 
+/* AI 解读注释 + 成员/代码页签 */
+.merged-panel-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 8px 0;
+  padding: 7px 9px;
+  border: 1px solid var(--fc-green, #3ddc97);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fc-green, #3ddc97) 8%, transparent);
+}
+.merged-panel-note b { font-size: 9px; color: var(--fc-green, #3ddc97); }
+.merged-panel-note span { font-size: 9.5px; line-height: 1.6; color: var(--fc-text); }
+.merged-panel-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px 2px;
+  border-bottom: 1px solid var(--fc-border);
+}
+.merged-panel-tabs button {
+  border: none;
+  background: transparent;
+  color: var(--fc-dim);
+  font-family: inherit;
+  font-size: 9.5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.merged-panel-tabs button.is-on { color: var(--fc-text); background: var(--fc-panel-3); }
+.merged-panel-code {
+  flex: 1;
+  overflow: auto;
+  margin: 6px 8px;
+  padding: 8px 10px;
+  background: var(--fc-code-bg);
+  border: 1px solid var(--fc-border);
+  border-radius: 6px;
+  font-family: var(--fc-mono);
+  font-size: 9.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--fc-text);
+}
+
 /* AI 调整对话框 */
 .merged-adjust-backdrop {
   position: absolute;

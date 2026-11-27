@@ -1,5 +1,5 @@
 import { nodeHeight, NODE_WIDTH, removeNodes, uid } from './graph';
-import type { FlowEdge, FlowGraph, MethodNode, Port, PortType, Segment } from './types';
+import type { FlowEdge, FlowGraph, MethodNode, Port, PortType, Segment, SegmentNote } from './types';
 
 const ROW_GAP = 44;
 const LAYER_GAP = 96;
@@ -13,7 +13,7 @@ const MAX_ROW_WIDTH = 1320;
  * the normal canvas, so layout, zoom and fit all keep working — and code
  * generation never sees it, because the original graph is left untouched.
  */
-export function collapseGraph(graph: FlowGraph): FlowGraph {
+export function collapseGraph(graph: FlowGraph, notes?: Map<string, SegmentNote>): FlowGraph {
   const segments = graph.segments ?? [];
   if (!segments.length) return graph;
 
@@ -31,7 +31,7 @@ export function collapseGraph(graph: FlowGraph): FlowGraph {
       name: segment.label,
       qualifiedName: segment.kind,
       kind: 'method',
-      effect: segment.names.join(' → '),
+      effect: notes?.get(segment.id)?.brief ?? segment.names.join(' → '),
       category: blockKindLabel(segment.kind),
       origin: 'builtin',
       inputs: segment.inputs.map((port, i) => toPort(`${id}:in:${i}`, port.name, port.type)),
@@ -141,6 +141,63 @@ function blockKindLabel(kind: string): string {
 
 function toPort(id: string, name: string, type: string): Port {
   return { id, name, type: (type || 'any') as PortType };
+}
+
+/**
+ * Append an AI-generated module (a parsed snippet graph) to the flow as a new
+ * segment. Free variables become value pills for the user to wire; the new
+ * block shows up in the merged view with the given label.
+ */
+export function appendModule(graph: FlowGraph, module: FlowGraph, label: string): string {
+  const nodeIdMap = new Map<string, string>();
+  const nodePortMap = new Map<string, string>();
+  for (const node of module.nodes) {
+    const id = uid('n');
+    nodeIdMap.set(node.id, id);
+    node.inputs.forEach((port, index) => nodePortMap.set(port.id, `${id}:in:${index}`));
+    node.outputs.forEach((port, index) => nodePortMap.set(port.id, `${id}:out:${index}`));
+    graph.nodes.push({
+      ...node,
+      id,
+      key: id,
+      inputs: node.inputs.map((port, index) => ({ ...port, id: `${id}:in:${index}` })),
+      outputs: node.outputs.map((port, index) => ({ ...port, id: `${id}:out:${index}` })),
+    });
+  }
+  const valueIdMap = new Map<string, string>();
+  for (const value of module.values) {
+    const id = uid('v');
+    valueIdMap.set(value.id, id);
+    graph.values.push({ ...value, id, key: id });
+  }
+  for (const edge of module.edges) {
+    const fromNode = nodeIdMap.get(edge.from.node);
+    const toNode = nodeIdMap.get(edge.to.node);
+    const fromValue = valueIdMap.get(edge.from.node);
+    const toValue = valueIdMap.get(edge.to.node);
+    const from = fromNode
+      ? { node: fromNode, port: nodePortMap.get(edge.from.port) ?? edge.from.port }
+      : fromValue ? { node: fromValue, port: `${fromValue}:out` } : null;
+    const to = toNode
+      ? { node: toNode, port: nodePortMap.get(edge.to.port) ?? edge.to.port }
+      : toValue ? { node: toValue, port: `${toValue}:in` } : null;
+    if (!from || !to) continue;
+    graph.edges.push({ id: uid('e'), from, to });
+  }
+  const segment: Segment = {
+    id: uid('s'),
+    kind: 'calc',
+    label,
+    members: [...nodeIdMap.values()],
+    names: module.nodes.map((node) => node.name),
+    startLine: 0,
+    endLine: 0,
+    size: module.nodes.length,
+    inputs: [],
+    outputs: [],
+  };
+  graph.segments = [...(graph.segments ?? []), segment];
+  return segment.id;
 }
 
 /** True when the graph carries merge blocks at all. */
